@@ -60,3 +60,42 @@ func TestSortIsStableWhateverTheInputOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestFilter(t *testing.T) {
+	procs := []Process{
+		{PID: 1, Command: "/usr/lib/systemd/systemd --user", Comm: "systemd"},
+		{PID: 2, Command: "[kthreadd]", Comm: "kthreadd"},
+		{PID: 3, Command: "/usr/bin/fish", Comm: "fish"},
+		{PID: 4, Command: "", Comm: "Worker Thread"},
+	}
+	tests := []struct {
+		name  string
+		query string
+		want  []int
+	}{
+		{"empty query matches everything", "", []int{1, 2, 3, 4}},
+		{"substring of the command line", "bin/fi", []int{3}},
+		{"case-insensitive on the command", "SYSTEMD", []int{1}},
+		{"matches comm even when the command differs", "worker", []int{4}},
+		{"query in both fields of one process counts once", "systemd", []int{1}},
+		{"matches several", "thread", []int{2, 4}},
+		{"no match", "nginx", []int{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pids(Filter(procs, tt.query))
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("Filter(%q) = %v, want %v", tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFilterReturnsANewSlice(t *testing.T) {
+	procs := []Process{{PID: 2, Command: "b"}, {PID: 1, Command: "a"}}
+	got := Filter(procs, "")
+	Sort(got, ByPID)
+	if procs[0].PID != 2 {
+		t.Fatalf("sorting the filtered result reordered the original: %v", pids(procs))
+	}
+}

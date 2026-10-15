@@ -3,6 +3,7 @@ package monitor
 import (
 	"cmp"
 	"slices"
+	"strings"
 )
 
 // SortKey chooses the order of the process table.
@@ -31,4 +32,18 @@ func Sort(procs []Process, key SortKey) {
 		}
 		return cmp.Compare(a.PID, b.PID)
 	})
+}
+
+// Filter returns the processes whose command line or comm contains query,
+// ignoring case. An empty query matches everything. The result is a new slice.
+func Filter(procs []Process, query string) []Process {
+	query = strings.ToLower(query)
+	out := make([]Process, 0, len(procs))
+	for _, p := range procs {
+		if strings.Contains(strings.ToLower(p.Command), query) ||
+			strings.Contains(strings.ToLower(p.Comm), query) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
