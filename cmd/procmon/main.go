@@ -4,8 +4,11 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -14,6 +17,29 @@ import (
 	"github.com/EliabParra/procmon/internal/procfs"
 	"github.com/EliabParra/procmon/internal/tui"
 )
+
+type config struct {
+	interval time.Duration
+	plain    bool
+}
+
+// parseArgs reads the command line; usage and errors go to out.
+func parseArgs(args []string, out io.Writer) (config, error) {
+	fs := flag.NewFlagSet("procmon", flag.ContinueOnError)
+	fs.SetOutput(out)
+	interval := fs.Duration("interval", tui.DefaultInterval, "refresh interval, e.g. 500ms or 2s")
+	plain := fs.Bool("plain", false, "draw pills with square ends, for fonts without Nerd Font glyphs")
+	if err := fs.Parse(args); err != nil {
+		return config{}, err
+	}
+	if fs.NArg() > 0 {
+		return config{}, fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	if *interval < tui.MinInterval || *interval > tui.MaxInterval {
+		return config{}, fmt.Errorf("-interval must be between %v and %v, got %v", tui.MinInterval, tui.MaxInterval, *interval)
+	}
+	return config{interval: *interval, plain: *plain}, nil
+}
 
 // controller adapts the functions of package control to the port the screen uses.
 type controller struct{}
@@ -28,7 +54,20 @@ func (controller) SetPriority(pid, nice int) error { return control.SetPriority(
 var _ tui.Control = controller{}
 
 func main() {
-	model := tui.New(monitor.New(procfs.New()), controller{})
+	cfg, err := parseArgs(os.Args[1:], os.Stderr)
+	switch {
+	case errors.Is(err, flag.ErrHelp):
+		return
+	case err != nil:
+		fmt.Fprintln(os.Stderr, "procmon:", err)
+		os.Exit(2)
+	}
+
+	opts := []tui.Option{tui.WithInterval(cfg.interval)}
+	if cfg.plain {
+		opts = append(opts, tui.WithPlain())
+	}
+	model := tui.New(monitor.New(procfs.New()), controller{}, opts...)
 
 	// Bubble Tea puts the terminal in the alternate screen and raw mode and
 	// restores it whichever way Run returns: q, Ctrl+C, a signal or an error.
