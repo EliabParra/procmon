@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -16,7 +17,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	m.notice = notice{} // a message lasts until the next key
 	switch m.mode {
-	case modeFilter:
+	case modeFilter, modeInterval:
 		return m.inputKey(msg)
 	default:
 		return m.normalKey(msg)
@@ -29,6 +30,8 @@ func (m *Model) normalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
+	case "i":
+		m.startInput(modeInterval, "")
 	case "+":
 		return m, m.stepInterval(+1)
 	case "-":
@@ -36,6 +39,7 @@ func (m *Model) normalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		return m.tableKey(msg)
 	}
+	return m, nil
 }
 
 // tableKey handles the keys of the process table.
@@ -125,6 +129,13 @@ func (m *Model) commitInput() (tea.Model, tea.Cmd) {
 	case modeFilter:
 		m.filter = strings.TrimSpace(text)
 		m.rebuild()
+	default:
+		d, err := parseInterval(text)
+		if err != nil {
+			m.notice = notice{text: fmt.Sprintf("invalid interval %q: %v", text, err), isErr: true}
+			return m, nil
+		}
+		return m, m.setInterval(d)
 	}
 	return m, nil
 }

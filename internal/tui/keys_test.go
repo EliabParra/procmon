@@ -241,7 +241,7 @@ func TestFilterPasteIsSingleLineAndClean(t *testing.T) {
 }
 
 func TestCtrlCQuitsFromTheInputModes(t *testing.T) {
-	for _, start := range []string{"/"} {
+	for _, start := range []string{"/", "i"} {
 		m := loaded(120, 30, proc(1, "bash", 1))
 		press(m, start)
 		if !isQuit(press(m, "ctrl+c")) {
@@ -344,6 +344,117 @@ func TestChangingTheIntervalRestartsTheTickChain(t *testing.T) {
 	}
 }
 
+func TestTypedIntervalTakesEffectAndTicks(t *testing.T) {
+	m := loaded(120, 30, proc(1, "bash", 1))
+	press(m, "i")
+	if m.mode != modeInterval {
+		t.Fatal("i must start the interval input")
+	}
+	typeText(m, "0.2")
+	cmd := press(m, "enter")
+
+	if m.interval != 200*time.Millisecond {
+		t.Errorf("interval = %v, want 200ms", m.interval)
+	}
+	if m.mode != modeNormal {
+		t.Error("Enter must leave the input")
+	}
+	var ticked bool
+	for _, msg := range run(cmd) {
+		if tk, ok := msg.(tickMsg); ok && tk.gen == m.gen {
+			ticked = true
+		}
+	}
+	if !ticked {
+		t.Error("the typed interval must schedule a tick of the new generation")
+	}
+}
+
+func TestTypedIntervalValues(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    time.Duration // 0 when invalid
+		message string
+	}{
+		{in: "2", want: 2 * time.Second},
+		{in: "0.5", want: 500 * time.Millisecond},
+		{in: "1.5s", want: 1500 * time.Millisecond},
+		{in: "0,5", want: 500 * time.Millisecond},
+		{in: " 3 ", want: 3 * time.Second},
+		{in: "60", want: 60 * time.Second},
+		{in: "0.2", want: 200 * time.Millisecond},
+		{in: "abc", message: "not a number"},
+		{in: "", message: "not a number"},
+		{in: "0", message: "between"},
+		{in: "-1", message: "between"},
+		{in: "0.05", message: "between"},
+		{in: "61", message: "between"},
+		{in: "1e9", message: "between"},
+		{in: "NaN", message: "not a number"},
+		{in: "Inf", message: "not a number"},
+		{in: "1.2.3", message: "not a number"},
+		{in: "2 3", message: "not a number"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q", tt.in), func(t *testing.T) {
+			m := loaded(120, 30, proc(1, "bash", 1))
+			press(m, "i")
+			typeText(m, tt.in)
+			cmd := press(m, "enter") // not run: a tick command waits for the interval
+
+			if m.mode != modeNormal {
+				t.Error("Enter must leave the input")
+			}
+			if tt.want > 0 {
+				if m.interval != tt.want {
+					t.Errorf("interval = %v, want %v", m.interval, tt.want)
+				}
+				if cmd == nil {
+					t.Error("a new interval must schedule its tick")
+				}
+				return
+			}
+			if cmd != nil {
+				t.Error("an invalid interval must not start anything, least of all quit")
+			}
+			if m.interval != DefaultInterval {
+				t.Errorf("an invalid interval changed it to %v", m.interval)
+			}
+			out := screenText(m)
+			if !strings.Contains(out, "invalid interval") || !strings.Contains(out, tt.message) {
+				t.Errorf("the status line must explain the problem (%q):\n%s", tt.message, out)
+			}
+			assertFits(t, m, 120, 30)
+
+			press(m, "j") // the next key dismisses the message
+			if strings.Contains(screenText(m), "invalid interval") {
+				t.Error("the message must go away on the next key")
+			}
+		})
+	}
+}
+
+func TestIntervalInputEscapeCancels(t *testing.T) {
+	m := loaded(120, 30, proc(1, "bash", 1))
+	press(m, "i")
+	typeText(m, "5")
+	press(m, "esc")
+	if m.interval != DefaultInterval || m.mode != modeNormal {
+		t.Errorf("Esc must cancel: interval %v, mode %v", m.interval, m.mode)
+	}
+}
+
+func TestIntervalInputShowsPromptAndCurrentValue(t *testing.T) {
+	m := loaded(100, 30, proc(1, "bash", 1))
+	press(m, "i")
+	typeText(m, "2")
+	lines := screen(m)
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, "seconds") || !strings.Contains(last, "2") {
+		t.Errorf("the prompt must ask for seconds: %q", last)
+	}
+}
+
 func TestNewHonoursTheIntervalOption(t *testing.T) {
 	tests := []struct {
 		name string
@@ -368,6 +479,17 @@ func TestNewHonoursTheIntervalOption(t *testing.T) {
 	}
 }
 
+func TestHelpLineListsTheKeysThatWork(t *testing.T) {
+	m := loaded(200, 30, proc(1, "init", 0))
+	out := screen(m)
+	help := out[len(out)-1]
+	for _, want := range []string{"q quit", "↑/↓ move", "pgup/pgdn page", "home/end jump", "c cpu", "m mem", "p pid", "/ filter", "+/- interval", "i set interval"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help line is missing %q: %q", want, help)
+		}
+	}
+}
+
 func TestHelpLineDropsTheLastHintsWhenNarrow(t *testing.T) {
 	m := loaded(30, 20, proc(1, "init", 0))
 	out := screen(m)
@@ -383,7 +505,7 @@ func TestHelpLineDropsTheLastHintsWhenNarrow(t *testing.T) {
 
 func TestLongInputStaysOnOneLine(t *testing.T) {
 	for _, size := range [][2]int{{120, 30}, {40, 12}, {10, 3}} {
-		for _, start := range []string{"/"} {
+		for _, start := range []string{"/", "i"} {
 			m := loaded(size[0], size[1], proc(1, "bash", 1))
 			press(m, start)
 			typeText(m, strings.Repeat("abc日", 100))

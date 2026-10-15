@@ -22,8 +22,9 @@ const warmup = 500 * time.Millisecond
 type mode int
 
 const (
-	modeNormal mode = iota
-	modeFilter      // typing the name filter
+	modeNormal   mode = iota
+	modeFilter        // typing the name filter
+	modeInterval      // typing a refresh interval in seconds
 )
 
 // Messages the model sends itself.
@@ -171,7 +172,7 @@ func (m *Model) rebuild() {
 
 // typing is true while a line of text is being typed in the bottom line.
 func (m *Model) typing() bool {
-	return m.mode == modeFilter
+	return m.mode == modeFilter || m.mode == modeInterval
 }
 
 // pick moves the cursor on the user's request: from now on it follows the

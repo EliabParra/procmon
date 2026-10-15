@@ -1,6 +1,11 @@
 package tui
 
 import (
+	"errors"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -42,6 +47,22 @@ func nextInterval(cur time.Duration, dir int) (time.Duration, bool) {
 		}
 	}
 	return cur, false
+}
+
+// parseInterval reads what the user typed: seconds, optionally decimal with a
+// point or a comma, optionally followed by "s" ("2", "0.5", "1,5", "3s").
+func parseInterval(text string) (time.Duration, error) {
+	s := strings.TrimSpace(text)
+	s = strings.TrimSpace(strings.TrimSuffix(s, "s"))
+	s = strings.Replace(s, ",", ".", 1)
+	secs, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(secs) || math.IsInf(secs, 0) {
+		return 0, errors.New("not a number of seconds")
+	}
+	if secs < MinInterval.Seconds() || secs > MaxInterval.Seconds() {
+		return 0, fmt.Errorf("must be between %s and %s", formatInterval(MinInterval), formatInterval(MaxInterval))
+	}
+	return time.Duration(math.Round(secs*1000)) * time.Millisecond, nil
 }
 
 // setInterval changes the refresh interval and starts a new tick chain; the

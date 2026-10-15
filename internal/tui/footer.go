@@ -20,6 +20,7 @@ var normalHints = []hint{
 	{"p", "pid"},
 	{"/", "filter"},
 	{"+/-", "interval"},
+	{"i", "set interval"},
 	{"pgup/pgdn", "page"},
 	{"home/end", "jump"},
 }
@@ -90,6 +91,10 @@ func (m *Model) statusText() string {
 // [0]:" (the number in brackets is the current nice) and, if that is still too
 // long, loses the end of the name: the typed value must always have room.
 func (m *Model) promptLabel(w int) string {
+	switch m.mode {
+	case modeInterval:
+		return "interval (seconds):"
+	}
 	return "/"
 }
 
