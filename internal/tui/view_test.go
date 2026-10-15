@@ -107,6 +107,13 @@ func TestHeaderShowsTheSummary(t *testing.T) {
 		"disk-sleep 1",
 		"stopped 3",
 		"zombie 4",
+		"Load 0.52 0.48 0.40",
+		"up 3d 4:05",
+		"Mem",
+		"4.0G / 16.0G",
+		"avail 12.0G",
+		"Swap",
+		"0K / 8.0G",
 		"refresh 1s",
 	} {
 		if !strings.Contains(out, want) {
