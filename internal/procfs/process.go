@@ -33,17 +33,21 @@ type ProcStatus struct {
 	VmRSSKB uint64 // resident memory in kB; 0 for kernel threads
 }
 
-// Positions inside the fields that follow the closing ')' of comm. The field
-// numbers of proc(5) minus 3, because field 3 (state) is the first one here.
+// firstFieldAfterComm is the proc(5) field number of the first field that
+// follows "(comm)": field 3, the state.
+const firstFieldAfterComm = 3
+
+// Positions inside the fields that follow the closing ')' of comm: the field
+// number of proc(5) minus firstFieldAfterComm, so state is position 0.
 const (
-	statState      = 3 - 3
-	statPPID       = 4 - 3
-	statUTime      = 14 - 3
-	statSTime      = 15 - 3
-	statPriority   = 18 - 3
-	statNice       = 19 - 3
-	statNumThreads = 20 - 3
-	statStartTime  = 22 - 3
+	statState      = 3 - firstFieldAfterComm
+	statPPID       = 4 - firstFieldAfterComm
+	statUTime      = 14 - firstFieldAfterComm
+	statSTime      = 15 - firstFieldAfterComm
+	statPriority   = 18 - firstFieldAfterComm
+	statNice       = 19 - firstFieldAfterComm
+	statNumThreads = 20 - firstFieldAfterComm
+	statStartTime  = 22 - firstFieldAfterComm
 	statMinFields  = statStartTime + 1
 )
 
