@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestInitRefreshesAndSchedulesATick(t *testing.T) {
@@ -90,5 +93,79 @@ func TestStaleTickIsIgnored(t *testing.T) {
 	}
 	if mon.count() != 0 {
 		t.Errorf("Refresh called %d times, want 0", mon.count())
+	}
+}
+
+func TestQuitKeys(t *testing.T) {
+	for _, name := range []string{"q", "ctrl+c"} {
+		t.Run(name, func(t *testing.T) {
+			m := loaded(120, 30, proc(1, "init", 0))
+			if !isQuit(press(m, name)) {
+				t.Errorf("%s must return tea.Quit", name)
+			}
+		})
+	}
+}
+
+func TestNavigationKeys(t *testing.T) {
+	// ByCPU order is PID 1..20 because the CPU falls as the PID grows.
+	tests := []struct {
+		name string
+		keys []string
+		want int // PID of the selected row
+	}{
+		{"starts on the first row", nil, 1},
+		{"down", []string{"down"}, 2},
+		{"j", []string{"j", "j", "j"}, 4},
+		{"up from the first row stays", []string{"up"}, 1},
+		{"k", []string{"down", "down", "k"}, 2},
+		{"end", []string{"end"}, 20},
+		{"down at the end stays", []string{"end", "down"}, 20},
+		{"home", []string{"end", "home"}, 1},
+		{"pgdown moves a page", []string{"pgdown"}, 1 + 6},
+		{"pgup moves a page back", []string{"end", "pgup"}, 20 - 6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := loaded(100, 15, manyProcs(20)...) // 15 rows tall: 6 process rows
+			press(m, tt.keys...)
+			if got := m.selected(); got != tt.want {
+				t.Errorf("selected PID = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScrollKeepsTheSelectedRowVisible(t *testing.T) {
+	m := loaded(100, 15, manyProcs(50)...) // 6 process rows
+
+	press(m, "end")
+	out := screenText(m)
+	if !strings.Contains(out, "cmd-50 ") {
+		t.Errorf("the last process is selected but not on screen:\n%s", out)
+	}
+	if strings.Contains(out, "cmd-1 ") {
+		t.Error("the first process must have scrolled out")
+	}
+
+	press(m, "home")
+	if !strings.Contains(screenText(m), "cmd-1 ") {
+		t.Error("the first process must be back on screen after home")
+	}
+}
+
+func TestResizeRecomputesTheLayout(t *testing.T) {
+	m := loaded(120, 35, manyProcs(100)...)
+	press(m, "end")
+
+	for _, size := range [][2]int{{80, 24}, {60, 12}, {150, 50}} {
+		m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		lines := screen(m)
+		if len(lines) != size[1] {
+			t.Errorf("after resize to %v the view has %d lines", size, len(lines))
+		}
+		if !strings.Contains(screenText(m), "cmd-100 ") {
+			t.Errorf("after resize to %v the selected row scrolled out", size)
+		}
 	}
 }

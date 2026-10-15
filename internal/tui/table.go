@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/EliabParra/procmon/internal/monitor"
 )
 
@@ -141,7 +143,7 @@ func (m *Model) tableLines(w, n int) (head string, body []string) {
 		return head, body
 	}
 	for i := range body {
-		at := i
+		at := m.offset + i
 		if at >= len(m.rows) {
 			break
 		}
@@ -151,17 +153,31 @@ func (m *Model) tableLines(w, n int) (head string, body []string) {
 			text := m.cellText(p, c.id)
 			cells[j] = cell(text, width(c), c.right)
 		}
-		body[i] = strings.Join(cells, " ")
+		body[i] = m.styleRow(p, cells, cols, at == m.cursor)
 	}
 	return head, body
+}
+
+// styleRow joins the cells of one row; the selected row keeps its background.
+func (m *Model) styleRow(p monitor.Process, cells []string, cols []column, selected bool) string {
+	base := lipgloss.NewStyle()
+	if selected {
+		base = m.styles.selected
+	}
+	return base.Render(strings.Join(cells, " "))
 }
 
 func (m *Model) emptyMessage() string {
 	return "no processes to show"
 }
 
-// tableBox is the rounded box around the table.
+// tableBox is the rounded box around the table; the position of the selected
+// row is in its top border.
 func (m *Model) tableBox(w, n int) []string {
 	head, body := m.tableLines(w-4, n)
-	return m.frame(w, m.styles.dim.Render("processes"), "", append([]string{head}, body...))
+	pos := ""
+	if len(m.rows) > 0 {
+		pos = m.styles.dim.Render(fmt.Sprintf("%d/%d", m.cursor+1, len(m.rows)))
+	}
+	return m.frame(w, m.styles.dim.Render("processes"), pos, append([]string{head}, body...))
 }

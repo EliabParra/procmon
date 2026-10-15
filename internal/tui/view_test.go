@@ -237,6 +237,36 @@ func TestRealTimePriorityIsShownAsRT(t *testing.T) {
 	}
 }
 
+func TestSelectedRowIsHighlighted(t *testing.T) {
+	m := loaded(120, 30, proc(10, "selected-one", 50), proc(20, "other-one", 10))
+	raw := strings.Split(m.View().Content, "\n")
+
+	var selected, other string
+	for _, l := range raw {
+		switch {
+		case strings.Contains(l, "selected-one"):
+			selected = l
+		case strings.Contains(l, "other-one"):
+			other = l
+		}
+	}
+	if selected == "" || other == "" {
+		t.Fatal("rows not found on screen")
+	}
+	if !strings.Contains(selected, "\x1b[") {
+		t.Error("the selected row must be styled")
+	}
+	if strings.Contains(other, "48;2;") {
+		t.Error("only the selected row carries a background")
+	}
+	press(m, "down")
+	for _, l := range strings.Split(m.View().Content, "\n") {
+		if strings.Contains(l, "other-one") && !strings.Contains(l, "48;2;") {
+			t.Error("the highlight must move with the selection")
+		}
+	}
+}
+
 func TestEmptyTableSaysSo(t *testing.T) {
 	m := loaded(100, 30)
 	if !strings.Contains(screenText(m), "no processes") {

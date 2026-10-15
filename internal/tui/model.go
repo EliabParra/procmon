@@ -47,7 +47,10 @@ type Model struct {
 
 	sortKey monitor.SortKey
 
-	rows []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
+	rows   []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
+	cursor int               // index in rows of the selected row
+	offset int               // index in rows of the first visible row
+	selPID int               // the selected process; the cursor follows it once picked
 }
 
 // Option customizes a Model.
@@ -78,6 +81,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.scrollToCursor()
 	case tickMsg:
 		if msg.gen != m.gen {
 			return m, nil
@@ -90,6 +94,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.snap, m.haveSnap = msg.snap, true
 			m.rebuild()
 		}
+	case tea.KeyPressMsg:
+		return m.handleKey(msg)
 	}
 	return m, nil
 }
@@ -121,4 +127,36 @@ func (m *Model) rebuild() {
 	monitor.Sort(rows, m.sortKey)
 
 	m.rows = rows
+
+	m.moveTo(m.cursor)
+}
+
+// selected is the PID of the selected row, or 0 when the table is empty.
+func (m *Model) selected() int { return m.selPID }
+
+// moveTo puts the cursor on row i (clamped) and scrolls it into view.
+func (m *Model) moveTo(i int) {
+	if len(m.rows) == 0 {
+		m.cursor, m.offset, m.selPID = 0, 0, 0
+		return
+	}
+	m.cursor = min(max(i, 0), len(m.rows)-1)
+	m.selPID = m.rows[m.cursor].PID
+	m.scrollToCursor()
+}
+
+// scrollToCursor moves the visible window the least needed to show the cursor.
+func (m *Model) scrollToCursor() {
+	n := m.layout().tableRows
+	if n <= 0 {
+		m.offset = m.cursor
+		return
+	}
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	if m.cursor >= m.offset+n {
+		m.offset = m.cursor - n + 1
+	}
+	m.offset = min(max(m.offset, 0), max(0, len(m.rows)-n))
 }

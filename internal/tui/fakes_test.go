@@ -196,6 +196,14 @@ func run(cmd tea.Cmd) []tea.Msg {
 	return []tea.Msg{msg}
 }
 
+func isQuit(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
+}
+
 // screen returns the rendered lines without styling.
 func screen(m *Model) []string {
 	return strings.Split(ansi.Strip(m.View().Content), "\n")
