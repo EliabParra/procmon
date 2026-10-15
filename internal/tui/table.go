@@ -184,6 +184,9 @@ func (m *Model) styleRow(p monitor.Process, cells []string, cols []column, selec
 	if selected {
 		base = m.styles.selected
 	}
+	if m.context[p.PID] && !selected {
+		base = m.styles.dim // an ancestor shown only for context
+	}
 	return base.Render(strings.Join(cells, " "))
 }
 

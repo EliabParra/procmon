@@ -65,6 +65,7 @@ type Model struct {
 
 	rows    []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
 	prefix  []string          // tree connectors of each row; nil in the flat table
+	context map[int]bool      // tree rows that are only there as ancestors of a match
 	matches int               // processes that match the filter (rows also holds ancestors)
 	cursor  int               // index in rows of the selected row
 	offset  int               // index in rows of the first visible row
@@ -150,7 +151,8 @@ func tickAfter(d time.Duration, gen int) tea.Cmd {
 
 // rebuild recomputes the table from the last snapshot: filter, then sort, then
 // (in the tree view) arrange parents before children, so the tree follows the
-// sort key among siblings.
+// sort key among siblings. With a filter, the tree also keeps the ancestors of
+// every match, dimmed, or a match would hang in mid-air.
 //
 // Once the user has picked a row the selection stays on the same process even
 // if the order changed; when that process is gone the cursor stays at the same
@@ -160,9 +162,19 @@ func tickAfter(d time.Duration, gen int) tea.Cmd {
 func (m *Model) rebuild() {
 	matched := monitor.Filter(m.snap.Processes, m.filter)
 	m.matches = len(matched)
-	m.prefix = nil
+	m.prefix, m.context = nil, nil
 
 	rows := matched
+	if m.tree && m.filter != "" {
+		rows = monitor.WithAncestors(m.snap.Processes, matched)
+		m.context = make(map[int]bool, len(rows)-len(matched))
+		for _, p := range rows {
+			m.context[p.PID] = true
+		}
+		for _, p := range matched {
+			delete(m.context, p.PID)
+		}
+	}
 	monitor.Sort(rows, m.sortKey)
 
 	if m.tree {

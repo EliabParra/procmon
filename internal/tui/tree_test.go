@@ -126,6 +126,35 @@ func TestTreeFollowsTheActiveSort(t *testing.T) {
 	}
 }
 
+func TestTreeFilterKeepsTheAncestorsOfEveryMatch(t *testing.T) {
+	m := loaded(120, 30, family()...)
+	press(m, "t", "/")
+	typeText(m, "sleeper")
+	press(m, "enter")
+
+	want := []string{"init", "└─ shell", "   └─ sleeper"}
+	if got := treeLines(m); !slices.Equal(got, want) {
+		t.Errorf("filtered tree =\n%q\nwant\n%q", got, want)
+	}
+	if out := screenText(m); !strings.Contains(out, "sleeper (1)") {
+		t.Errorf("the filter pill counts the matches, not their ancestors:\n%s", out)
+	}
+
+	// Ancestors are context: dimmed. The match itself is not.
+	dim := sgrFg(colDim)
+	if line := rawLine(t, m, "└─ shell"); !strings.Contains(line, dim) {
+		t.Errorf("an ancestor that does not match must be dimmed: %q", line)
+	}
+	if line := rawLine(t, m, "└─ sleeper"); strings.Contains(line, dim) {
+		t.Errorf("the match must not be dimmed: %q", line)
+	}
+
+	press(m, "t") // the flat table lists only the match
+	if got := treeLines(m); !slices.Equal(got, []string{"sleeper"}) {
+		t.Errorf("filtered table = %q, want only the match", got)
+	}
+}
+
 func TestTreeSelectionAndScrolling(t *testing.T) {
 	m := loaded(100, 14, family()...) // 5 process rows: the tree has 7
 	press(m, "p", "t")
