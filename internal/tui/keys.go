@@ -17,7 +17,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	m.notice = notice{} // a message lasts until the next key
 	switch m.mode {
-	case modeFilter, modeInterval:
+	case modeFilter, modeInterval, modeNice:
 		return m.inputKey(msg)
 	case modeConfirm:
 		return m.confirmKey(msg)
@@ -40,6 +40,8 @@ func (m *Model) normalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.stepInterval(-1)
 	case "x", "X", "s", "r":
 		m.startAction(msg.String())
+	case "n":
+		m.startNice()
 	default:
 		if m.view == viewDetail {
 			return m.detailKey(msg)
@@ -128,19 +130,22 @@ func (m *Model) inputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) endInput() {
 	m.mode = modeNormal
+	m.pending = pending{}
 	m.input.Reset()
 }
 
 // commitInput applies what was typed. An empty filter clears it; an invalid
 // interval or nice is reported in the status line and changes nothing.
 func (m *Model) commitInput() (tea.Model, tea.Cmd) {
-	from, text := m.mode, m.input.String()
+	from, text, asked := m.mode, m.input.String(), m.pending
 	m.endInput()
 
 	switch from {
 	case modeFilter:
 		m.filter = strings.TrimSpace(text)
 		m.rebuild()
+	case modeNice:
+		m.commitNice(asked, text)
 	default:
 		d, err := parseInterval(text)
 		if err != nil {

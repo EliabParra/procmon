@@ -275,6 +275,20 @@ func TestEmptyTableSaysSo(t *testing.T) {
 	}
 }
 
+func TestHelpLineListsEveryKeyOfTheTable(t *testing.T) {
+	m := loaded(200, 30, proc(1, "init", 0))
+	out := screen(m)
+	help := out[len(out)-1]
+	for _, want := range []string{
+		"q quit", "↑/↓ move", "enter detail", "x terminate", "X kill", "s suspend", "r resume", "n nice",
+		"t tree", "c cpu", "m mem", "p pid", "/ filter", "+/- interval", "i set interval", "pgup/pgdn page", "home/end jump",
+	} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help line is missing %q: %q", want, help)
+		}
+	}
+}
+
 // Any process can put anything in its command line. What reaches the terminal
 // must be exactly what a harmless command with '?' in place of each control
 // character would produce, so no escape sequence is ever interpreted.

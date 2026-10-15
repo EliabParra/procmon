@@ -3,6 +3,8 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -102,6 +104,59 @@ func failure(err error, t target, can, failed string) notice {
 		return notice{text: fmt.Sprintf("permission denied: only root or the owner of %s can %s", t, can), isErr: true}
 	}
 	return notice{text: fmt.Sprintf("%s: %s", failed, clean(err.Error())), isErr: true}
+}
+
+// startNice opens the prompt for a new nice value, showing the current one.
+func (m *Model) startNice() {
+	t, ok := m.actionTarget()
+	if !ok {
+		return
+	}
+	cur, err := m.ctl.Priority(t.pid)
+	if err != nil {
+		m.notice = failure(err, t, "read the nice of "+t.String(), fmt.Sprintf("reading the nice of %s failed", t))
+		return
+	}
+	m.pending = pending{who: t, nice: cur}
+	m.startInput(modeNice, "")
+}
+
+// parseNice reads what the user typed: a whole number from -20 to 19.
+func parseNice(text string) (int, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil {
+		return 0, errors.New("not a whole number")
+	}
+	if n < minNice || n > maxNice {
+		return 0, fmt.Errorf("must be between %d and %d", minNice, maxNice)
+	}
+	return n, nil
+}
+
+// Limits of the nice value, the ones setpriority(2) accepts.
+const (
+	minNice = -20 // highest priority
+	maxNice = 19  // lowest priority
+)
+
+// commitNice applies what was typed in the nice prompt. An invalid value is
+// reported in the status line and changes nothing.
+func (m *Model) commitNice(p pending, text string) {
+	n, err := parseNice(text)
+	if err != nil {
+		m.notice = notice{text: fmt.Sprintf("invalid nice %q: %v", clean(text), err), isErr: true}
+		return
+	}
+	t := p.who
+	if err := m.ctl.SetPriority(t.pid, n); err != nil {
+		if errors.Is(err, oserr.ErrPermission) {
+			m.notice = notice{text: "permission denied: lowering nice needs root (CAP_SYS_NICE); only the owner can raise it", isErr: true}
+			return
+		}
+		m.notice = failure(err, t, "", fmt.Sprintf("setting nice %d on %s failed", n, t))
+		return
+	}
+	m.notice = notice{text: fmt.Sprintf("nice of %s set from %d to %d", t, p.nice, n)}
 }
 
 // confirmKey answers the question: y does it, n or esc cancels, and any other

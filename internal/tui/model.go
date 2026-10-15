@@ -26,6 +26,7 @@ const (
 	modeFilter        // typing the name filter
 	modeInterval      // typing a refresh interval in seconds
 	modeConfirm       // asking y/n before sending a signal
+	modeNice          // typing a new nice value for the target process
 )
 
 // view is the screen being shown.
@@ -219,7 +220,7 @@ func (m *Model) rebuild() {
 
 // typing is true while a line of text is being typed in the bottom line.
 func (m *Model) typing() bool {
-	return m.mode == modeFilter || m.mode == modeInterval
+	return m.mode == modeFilter || m.mode == modeInterval || m.mode == modeNice
 }
 
 // pick moves the cursor on the user's request: from now on it follows the

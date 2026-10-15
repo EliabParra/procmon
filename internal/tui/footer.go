@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -20,6 +21,7 @@ var normalHints = []hint{
 	{"X", "kill"},
 	{"s", "suspend"},
 	{"r", "resume"},
+	{"n", "nice"},
 	{"t", "tree"},
 	{"c", "cpu"},
 	{"m", "mem"},
@@ -40,6 +42,7 @@ var detailHints = []hint{
 	{"X", "kill"},
 	{"s", "suspend"},
 	{"r", "resume"},
+	{"n", "nice"},
 	{"+/-", "interval"},
 	{"i", "set interval"},
 	{"pgup/pgdn", "page"},
@@ -120,6 +123,9 @@ func (m *Model) promptLabel(w int) string {
 	switch m.mode {
 	case modeInterval:
 		return "interval (seconds):"
+	case modeNice:
+		who, cur := m.pending.who, m.pending.nice
+		return fmt.Sprintf("nice of %s is %d, new value (%d..%d):", who, cur, minNice, maxNice)
 	}
 	return "/"
 }
