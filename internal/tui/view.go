@@ -54,12 +54,20 @@ func (m *Model) render() string {
 	var lines []string
 	if l.boxed {
 		lines = append(lines, m.headerBox(w)...)
-		lines = append(lines, m.tableBox(w, l.tableRows)...)
+		if m.view == viewDetail {
+			lines = append(lines, m.detailBox(w, m.detailRows())...)
+		} else {
+			lines = append(lines, m.tableBox(w, l.tableRows)...)
+		}
 	} else {
 		lines = append(lines, m.summaryLines(w)[0])
-		head, body := m.tableLines(w, l.tableRows)
-		lines = append(lines, head)
-		lines = append(lines, body...)
+		if m.view == viewDetail {
+			lines = append(lines, m.detailLines(w, m.detailRows())...)
+		} else {
+			head, body := m.tableLines(w, l.tableRows)
+			lines = append(lines, head)
+			lines = append(lines, body...)
+		}
 	}
 	// The last row is the footer's whatever the height: a question or a message
 	// is never cut away while the keys can still answer it.

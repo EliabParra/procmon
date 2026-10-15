@@ -37,6 +37,9 @@ func (m *Model) normalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "-":
 		return m, m.stepInterval(-1)
 	default:
+		if m.view == viewDetail {
+			return m.detailKey(msg)
+		}
 		return m.tableKey(msg)
 	}
 	return m, nil
@@ -59,6 +62,8 @@ func (m *Model) tableKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.picked = false // the top row again, whatever the order becomes
 	case "end":
 		m.pick(len(m.rows) - 1)
+	case "enter":
+		return m, m.openDetail()
 	case "c":
 		m.setSort(monitor.ByCPU)
 	case "m":

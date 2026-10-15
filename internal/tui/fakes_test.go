@@ -132,6 +132,20 @@ func manyProcs(n int) []monitor.Process {
 	return procs
 }
 
+// loadedWith is loaded for a model whose monitor is mon: the snapshot is also
+// what mon serves on the next Refresh. opts customize the model.
+func loadedWith(mon *fakeMonitor, w, h int, procs ...monitor.Process) *Model {
+	return loadedOpts(mon, &fakeControl{}, w, h, procs)
+}
+
+func loadedOpts(mon *fakeMonitor, ctl *fakeControl, w, h int, procs []monitor.Process, opts ...Option) *Model {
+	mon.snap = snapshotOf(procs...)
+	m := New(mon, ctl, opts...)
+	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m.Update(refreshedMsg{snap: mon.snap})
+	return m
+}
+
 // loaded returns a model of the given terminal size that already holds procs.
 func loaded(w, h int, procs ...monitor.Process) *Model {
 	m := New(&fakeMonitor{}, &fakeControl{})
@@ -201,6 +215,16 @@ func run(cmd tea.Cmd) []tea.Msg {
 		return out
 	}
 	return []tea.Msg{msg}
+}
+
+// deliver runs cmd and feeds every message it produced back into the model,
+// except ticks, which would only schedule the next refresh.
+func deliver(m *Model, cmd tea.Cmd) {
+	for _, msg := range run(cmd) {
+		if _, tick := msg.(tickMsg); !tick {
+			m.Update(msg)
+		}
+	}
 }
 
 func isQuit(cmd tea.Cmd) bool {

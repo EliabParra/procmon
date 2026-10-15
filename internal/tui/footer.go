@@ -15,6 +15,7 @@ type hint struct{ key, desc string }
 var normalHints = []hint{
 	{"q", "quit"},
 	{"↑/↓", "move"},
+	{"enter", "detail"},
 	{"t", "tree"},
 	{"c", "cpu"},
 	{"m", "mem"},
@@ -26,8 +27,19 @@ var normalHints = []hint{
 	{"home/end", "jump"},
 }
 
+// detailHints are the keys of the detail screen.
+var detailHints = []hint{
+	{"q", "quit"},
+	{"esc", "back"},
+	{"+/-", "interval"},
+	{"i", "set interval"},
+}
+
 // hints are the keys the current screen answers to.
 func (m *Model) hints() []hint {
+	if m.view == viewDetail {
+		return detailHints
+	}
 	return normalHints
 }
 

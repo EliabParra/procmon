@@ -27,6 +27,14 @@ const (
 	modeInterval      // typing a refresh interval in seconds
 )
 
+// view is the screen being shown.
+type view int
+
+const (
+	viewTable  view = iota // the process table, flat or as a tree
+	viewDetail             // one process: CPU history and threads
+)
+
 // Messages the model sends itself.
 type (
 	// tickMsg fires when the refresh interval has passed. gen tells which tick
@@ -48,6 +56,8 @@ type Model struct {
 
 	width, height int
 	mode          mode
+	view          view
+	detail        detail // the open detail screen, when view is viewDetail
 
 	interval   time.Duration
 	gen        int  // current tick chain
@@ -119,6 +129,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.snap, m.haveSnap = msg.snap, true
 			m.rebuild()
+			m.trackDetail()
 		}
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)

@@ -37,6 +37,8 @@ func (m *Model) headerBox(w int) []string {
 // viewName is what the view pill says: the flat table, the tree or the detail.
 func (m *Model) viewName() string {
 	switch {
+	case m.view == viewDetail:
+		return "detail"
 	case m.tree:
 		return "tree"
 	}
