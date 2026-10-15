@@ -178,7 +178,10 @@ func (m *Model) tableLines(w, n int) (head string, body []string) {
 	return head, body
 }
 
-// styleRow joins the cells of one row; the selected row keeps its background.
+// styleRow joins the cells of one row and colours it. Zombies, processes
+// blocked on I/O and stopped ones are tinted, and their state cell becomes a
+// solid chip; the selected row keeps its background under either look, and a
+// tree row that is only an ancestor of a match is dimmed.
 func (m *Model) styleRow(p monitor.Process, cells []string, cols []column, selected bool) string {
 	base := lipgloss.NewStyle()
 	if selected {
@@ -187,7 +190,32 @@ func (m *Model) styleRow(p monitor.Process, cells []string, cols []column, selec
 	if m.context[p.PID] && !selected {
 		base = m.styles.dim // an ancestor shown only for context
 	}
-	return base.Render(strings.Join(cells, " "))
+	at := slices.IndexFunc(cols, func(c column) bool { return c.id == colState })
+	return m.paint(p.State, cells, at, base)
+}
+
+// paint joins cells with base as their style. When the state is one the table
+// highlights, the text takes its colour and the cell at index at (the state
+// letter) becomes a solid chip.
+func (m *Model) paint(state byte, cells []string, at int, base lipgloss.Style) string {
+	hot, isHot := m.styles.state(state)
+	if isHot {
+		base = base.Foreground(hot.color)
+	}
+	if !isHot || at < 0 || at >= len(cells) {
+		return base.Render(strings.Join(cells, " "))
+	}
+
+	// Three runs instead of one per cell: what comes before the state cell,
+	// the chip, and what comes after.
+	var before, after string
+	if at > 0 {
+		before = base.Render(strings.Join(cells[:at], " ") + " ")
+	}
+	if at < len(cells)-1 {
+		after = base.Render(" " + strings.Join(cells[at+1:], " "))
+	}
+	return before + hot.chip.Render(cells[at]) + after
 }
 
 func (m *Model) emptyMessage() string {

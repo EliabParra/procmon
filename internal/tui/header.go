@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/EliabParra/procmon/internal/monitor"
 )
 
@@ -64,15 +66,25 @@ func (m *Model) summaryLines(w int) []string {
 		return m.styles.dim.Render(label) + " " + m.styles.text.Render(fmt.Sprint(value))
 	}
 
+	// The counts of the states the table highlights wear the same colour as
+	// those rows, so the header doubles as their legend.
+	alert := func(label string, n int, state byte) string {
+		hot, isHot := m.styles.state(state)
+		if n == 0 || !isHot {
+			return kv(label, n)
+		}
+		return m.styles.dim.Render(label) + " " + lipgloss.NewStyle().Foreground(hot.color).Bold(true).Render(fmt.Sprint(n))
+	}
+
 	// Idle kernel threads (state I) are sleepers too, and top counts them so;
 	// that way the counts add up to the total.
 	tasks := strings.Join([]string{
 		kv("Tasks", s.Total),
 		kv("running", s.Running),
 		kv("sleeping", s.Sleeping+s.Idle),
-		kv("disk-sleep", s.DiskSleep),
-		kv("stopped", s.Stopped),
-		kv("zombie", s.Zombie),
+		alert("disk-sleep", s.DiskSleep, 'D'),
+		alert("stopped", s.Stopped, 'T'),
+		alert("zombie", s.Zombie, 'Z'),
 	}, gap)
 
 	load := strings.Join([]string{
