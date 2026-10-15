@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math"
 	"testing"
 	"time"
 	"unicode"
@@ -69,6 +70,31 @@ func TestFormatUptime(t *testing.T) {
 		t.Run(tt.want, func(t *testing.T) {
 			if got := formatUptime(tt.d); got != tt.want {
 				t.Errorf("formatUptime(%v) = %q, want %q", tt.d, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBarCells(t *testing.T) {
+	tests := []struct {
+		name  string
+		frac  float64
+		width int
+		want  int
+	}{
+		{"empty", 0, 10, 0},
+		{"half", 0.5, 10, 5},
+		{"full", 1, 10, 10},
+		{"over full is clamped", 2, 10, 10},
+		{"negative is clamped", -1, 10, 0},
+		{"tiny but used shows one cell", 0.001, 10, 1},
+		{"not a number", math.NaN(), 10, 0},
+		{"no room", 0.5, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := barCells(tt.frac, tt.width); got != tt.want {
+				t.Errorf("barCells(%v, %d) = %d, want %d", tt.frac, tt.width, got, tt.want)
 			}
 		})
 	}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode"
@@ -45,6 +46,18 @@ func formatUptime(d time.Duration) string {
 		return fmt.Sprintf("%dd %d:%02d", int(d.Hours())/24, int(d.Hours())%24, int(d.Minutes())%60)
 	}
 	return fmt.Sprintf("%d:%02d:%02d", int(d.Hours()), int(d.Minutes())%60, int(d.Seconds())%60)
+}
+
+// barCells is how many of width cells of a bar are filled for a fraction in
+// 0..1. A used resource always shows at least one cell.
+func barCells(frac float64, width int) int {
+	if width <= 0 || math.IsNaN(frac) || frac <= 0 {
+		return 0
+	}
+	if frac >= 1 {
+		return width
+	}
+	return max(1, int(math.Round(frac*float64(width))))
 }
 
 // clean makes text from /proc safe to draw. Any process may put anything in
