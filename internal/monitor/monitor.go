@@ -15,14 +15,16 @@ import (
 type sample struct {
 	startTime uint64
 	ticks     uint64 // utime + stime
+	cpu       *ring  // %CPU of every refresh since this process was first seen
 }
 
 // Monitor takes snapshots of a Source and remembers the previous one, which is
 // what turns cumulative CPU counters into a percentage.
 type Monitor struct {
-	src   Source
-	users *Users
-	now   func() time.Time
+	src      Source
+	users    *Users
+	now      func() time.Time
+	histSize int
 
 	prev     map[int]sample // by PID, only processes seen in the last refresh
 	prevSys  uint64         // total jiffies of /proc/stat at the last refresh
@@ -40,7 +42,7 @@ func WithClock(now func() time.Time) Option { return func(m *Monitor) { m.now = 
 
 // New returns a Monitor reading from src.
 func New(src Source, opts ...Option) *Monitor {
-	m := &Monitor{src: src, users: NewUsers("/etc/passwd"), now: time.Now}
+	m := &Monitor{src: src, users: NewUsers("/etc/passwd"), now: time.Now, histSize: defaultHistory}
 	for _, opt := range opts {
 		opt(m)
 	}
@@ -53,8 +55,10 @@ func New(src Source, opts ...Option) *Monitor {
 // total jiffies (the course formula, a share of the whole machine), so the
 // first call reports 0 for everything. A process that exits while being read is
 // skipped; one whose status or command line is not readable keeps its row with
-// what could be read. Only a failure of a system-wide file returns an error,
-// and then the previous baseline is kept.
+// what could be read. Each listed process also gets one more sample in its
+// History, and the state of processes that are gone is dropped. Only a failure
+// of a system-wide file returns an error, and then the previous baseline is
+// kept.
 func (m *Monitor) Refresh() (Snapshot, error) {
 	pids, err := m.src.PIDs()
 	if err != nil {
@@ -92,10 +96,13 @@ func (m *Monitor) Refresh() (Snapshot, error) {
 		if !ok {
 			continue
 		}
+		history := newRing(m.histSize)
 		if old, seen := m.prev[pid]; seen && old.startTime == p.StartTime {
 			p.CPUPercent = CPUPercent(sub(ticks, old.ticks), sysDelta)
+			history = old.cpu
 		}
-		next[pid] = sample{startTime: p.StartTime, ticks: ticks}
+		history.add(p.CPUPercent)
+		next[pid] = sample{startTime: p.StartTime, ticks: ticks, cpu: history}
 		procs = append(procs, p)
 	}
 	Sort(procs, ByPID)

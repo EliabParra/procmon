@@ -30,3 +30,24 @@ func (r *ring) values() []float64 {
 	}
 	return append(slices.Clone(r.buf[r.next:]), r.buf[:r.next]...)
 }
+
+// WithHistory sets how many %CPU samples are kept per process (default 60).
+// A value below 1 keeps the default.
+func WithHistory(n int) Option {
+	return func(m *Monitor) {
+		if n > 0 {
+			m.histSize = n
+		}
+	}
+}
+
+// History returns the %CPU samples of pid, one per Refresh, oldest first, for
+// as long as that same process (PID and start time) keeps being listed. It is
+// nil for a PID that was not in the last Refresh.
+func (m *Monitor) History(pid int) []float64 {
+	s, ok := m.prev[pid]
+	if !ok {
+		return nil
+	}
+	return s.cpu.values()
+}
