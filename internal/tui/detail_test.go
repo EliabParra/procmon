@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/EliabParra/procmon/internal/monitor"
+	"github.com/EliabParra/procmon/internal/oserr"
 )
 
 // thread builds a thread row.
@@ -109,6 +112,58 @@ func TestDetailChartWithoutSamples(t *testing.T) {
 	assertFits(t, m, 120, 35)
 }
 
+func TestDetailListsTheThreads(t *testing.T) {
+	m, _ := editorSetup(120, 35)
+	openDetail(m)
+	out := screenText(m)
+
+	for _, title := range []string{"TID", "TIME", "NAME"} {
+		if !strings.Contains(out, title) {
+			t.Errorf("the thread list has no %s column:\n%s", title, out)
+		}
+	}
+	for _, row := range []string{
+		`200\s+S\s+0:01\.50\s+editor`,
+		`201\s+R\s+1:30\.00\s+worker`,
+		`202\s+D\s+0:02\.00\s+io-wait`,
+	} {
+		if !regexp.MustCompile(row).MatchString(out) {
+			t.Errorf("no thread row matches %q:\n%s", row, out)
+		}
+	}
+}
+
+func TestThreadStatesUseTheSameColoursAsTheTable(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	mon.threads[200] = append(mon.threads[200], thread(203, "stuck", 'Z', 0), thread(204, "paused", 'T', 0))
+	openDetail(m)
+
+	for marker, c := range map[string]string{
+		"io-wait": sgrFg(colDiskSleep),
+		"stuck":   sgrFg(colZombie),
+		"paused":  sgrFg(colStopped),
+	} {
+		if line := rawLine(t, m, marker); !strings.Contains(line, c) {
+			t.Errorf("thread %s must be tinted: %q", marker, line)
+		}
+	}
+	if line := rawLine(t, m, "worker"); strings.Contains(line, sgrFg(colDiskSleep)) || strings.Contains(line, sgrBg(colStopped)) {
+		t.Errorf("a running thread keeps the plain look: %q", line)
+	}
+}
+
+func TestThreadNamesAreCleaned(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	mon.threads[200] = []monitor.Thread{thread(200, "evil\x1b[2J\tname\n", 'S', 0)}
+	openDetail(m)
+
+	out := screenText(m)
+	if strings.ContainsRune(out, '\x1b') || !strings.Contains(out, "evil?[2J?name?") {
+		t.Errorf("hostile thread names must show as '?':\n%q", out)
+	}
+	assertFits(t, m, 120, 35)
+}
+
 func TestDetailHeaderHighlightsTheState(t *testing.T) {
 	m, mon := editorSetup(120, 35)
 	zombie := proc(200, "/usr/bin/editor", 0)
@@ -123,6 +178,44 @@ func TestDetailHeaderHighlightsTheState(t *testing.T) {
 	}
 	if line := rawLine(t, m, "state"); !strings.Contains(line, sgrFg(colZombie)) {
 		t.Errorf("a zombie state is drawn in the zombie colour: %q", line)
+	}
+}
+
+func TestDetailRefreshesOnEveryTick(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	openDetail(m)
+	before := mon.reads()
+
+	mon.threads[200] = []monitor.Thread{thread(200, "editor", 'S', 0), thread(209, "fresh-thread", 'S', 0)}
+	mon.history[200] = []float64{0, 0, 0, 0, 0, 100}
+	refreshNow(m)
+
+	if mon.reads() <= before {
+		t.Error("a tick with the detail open must read the threads again")
+	}
+	out := screenText(m)
+	if !strings.Contains(out, "fresh-thread") {
+		t.Errorf("the new thread must show after the tick:\n%s", out)
+	}
+	if !strings.Contains(out, "6 samples") {
+		t.Errorf("the chart must follow the history after the tick:\n%s", out)
+	}
+}
+
+func TestTheTableDoesNotReadThreads(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	refreshNow(m)
+	refreshNow(m)
+	if mon.reads() != 0 {
+		t.Errorf("threads were read %d times with no detail open", mon.reads())
+	}
+
+	openDetail(m)
+	press(m, "esc")
+	reads := mon.reads()
+	refreshNow(m)
+	if mon.reads() != reads {
+		t.Error("closing the detail must stop reading threads")
 	}
 }
 
@@ -217,6 +310,92 @@ func TestRecycledPIDIsNotTheSameProcess(t *testing.T) {
 	out := screenText(m)
 	if !strings.Contains(out, "no longer exists") || strings.Contains(out, "a-stranger") {
 		t.Errorf("a reused PID must not be shown as the old process:\n%s", out)
+	}
+}
+
+func TestDetailBeforeTheThreadsArrive(t *testing.T) {
+	m, _ := editorSetup(120, 35)
+	press(m, "p", "down", "enter") // the command that loads the detail has not run yet
+	out := screenText(m)
+	if !strings.Contains(out, "PID 200") || !strings.Contains(out, "reading threads") {
+		t.Errorf("the detail must open at once and say it is reading:\n%s", out)
+	}
+}
+
+func manyThreads(n int) []monitor.Thread {
+	threads := make([]monitor.Thread, n)
+	for i := range threads {
+		threads[i] = thread(1000+i, fmt.Sprintf("t-%d", i), 'S', time.Duration(i)*time.Second)
+	}
+	return threads
+}
+
+// With no room for thread rows the title must not claim a range of zero rows.
+func TestThreadTitleWithoutRoomForRowsSaysSo(t *testing.T) {
+	m, _ := editorSetup(100, 16) // 8 lines in the box: the thread title is the last but one
+	openDetail(m)
+
+	out := screenText(m)
+	if !strings.Contains(out, "Threads (3, enlarge the window)") {
+		t.Errorf("the title must give the count and say why there are no rows:\n%s", out)
+	}
+	if strings.Contains(out, "1-0") {
+		t.Errorf("no empty range:\n%s", out)
+	}
+	assertFits(t, m, 100, 16)
+
+	press(m, "down", "end") // scrolling with no rows keeps the same title
+	if !strings.Contains(screenText(m), "Threads (3, enlarge the window)") {
+		t.Errorf("scrolling must not change it:\n%s", screenText(m))
+	}
+}
+
+func TestThreadTitleNeverShowsAnEmptyRange(t *testing.T) {
+	rangeOf := regexp.MustCompile(`\b(\d+)-(\d+) of`)
+	for _, h := range []int{16, 17, 18, 19, 20, 25, 35} {
+		t.Run(fmt.Sprintf("height %d", h), func(t *testing.T) {
+			m, mon := editorSetup(100, h)
+			mon.threads[200] = manyThreads(40)
+			openDetail(m)
+
+			got := rangeOf.FindStringSubmatch(screenText(m))
+			if got == nil {
+				return // no room for rows: the title says so instead
+			}
+			var first, last int
+			fmt.Sscan(got[1], &first)
+			fmt.Sscan(got[2], &last)
+			if last < first {
+				t.Errorf("the range %s-%s lists no rows", got[1], got[2])
+			}
+		})
+	}
+}
+
+func TestDetailFitsEverySize(t *testing.T) {
+	states := map[string]func(m *Model, mon *fakeMonitor){
+		"loaded":  func(m *Model, mon *fakeMonitor) { openDetail(m) },
+		"not yet": func(m *Model, mon *fakeMonitor) { press(m, "p", "down", "enter") },
+		"gone": func(m *Model, mon *fakeMonitor) {
+			openDetail(m)
+			m.Update(refreshedMsg{snap: snapshotOf(proc(100, "shell", 1))})
+		},
+		"forbidden": func(m *Model, mon *fakeMonitor) { mon.threadsErr = oserr.ErrPermission; openDetail(m) },
+		"many":      func(m *Model, mon *fakeMonitor) { mon.threads[200] = manyThreads(500); openDetail(m); press(m, "end") },
+		"hostile": func(m *Model, mon *fakeMonitor) {
+			mon.threads[200] = []monitor.Thread{thread(1, "日本語\x1b[31m"+strings.Repeat("x", 300), 'S', 0)}
+			openDetail(m)
+		},
+	}
+	sizes := [][2]int{{120, 35}, {80, 24}, {200, 60}, {60, 15}, {40, 12}, {30, 8}, {20, 5}, {10, 3}, {5, 2}, {1, 1}}
+	for name, setup := range states {
+		for _, size := range sizes {
+			t.Run(fmt.Sprintf("%s %dx%d", name, size[0], size[1]), func(t *testing.T) {
+				m, mon := editorSetup(size[0], size[1])
+				setup(m, mon)
+				assertFits(t, m, size[0], size[1])
+			})
+		}
 	}
 }
 

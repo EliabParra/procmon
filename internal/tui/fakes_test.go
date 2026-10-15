@@ -227,6 +227,14 @@ func deliver(m *Model, cmd tea.Cmd) {
 	}
 }
 
+// refreshNow is what one tick does: Refresh in the background and the result
+// back into the model.
+func refreshNow(m *Model) {
+	m.interval = time.Millisecond // the tick command really waits
+	_, cmd := m.Update(tickMsg{gen: m.gen})
+	deliver(m, cmd)
+}
+
 func isQuit(cmd tea.Cmd) bool {
 	if cmd == nil {
 		return false

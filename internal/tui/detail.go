@@ -12,17 +12,23 @@ import (
 	"github.com/EliabParra/procmon/internal/monitor"
 )
 
+// detailFixed is how many lines of the detail box come before the thread rows:
+// identity (2), blank, chart (2), blank, thread title and column titles.
+const detailFixed = 8
+
 // detailData is what the detail screen reads about one process on every
 // refresh: its CPU history and its threads.
 type detailData struct {
 	pid     int // 0 when nothing has been read yet
 	history []float64
+	threads []monitor.Thread
 }
 
 // readDetail reads the detail of pid. It runs inside a command, off the
 // update loop, because listing the threads of a big process takes a while.
 func readDetail(mon Monitor, pid int) detailData {
-	return detailData{pid: pid, history: mon.History(pid)}
+	threads, _ := mon.Threads(pid)
+	return detailData{pid: pid, history: mon.History(pid), threads: threads}
 }
 
 // detailMsg carries the detail read right after the screen was opened, so it
@@ -115,6 +121,9 @@ func (m *Model) detailProc() (p monitor.Process, alive bool) {
 // detailRows is how many lines the detail box holds inside its borders.
 func (m *Model) detailRows() int { return m.layout().tableRows + 1 }
 
+// threadRows is how many threads fit on screen.
+func (m *Model) threadRows() int { return max(0, m.detailRows()-detailFixed) }
+
 // detailKey handles the keys of the detail screen: esc or enter goes back.
 func (m *Model) detailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -129,14 +138,16 @@ func (m *Model) detailBox(w, n int) []string {
 	return m.frame(w, m.styles.dim.Render("detail"), m.styles.dim.Render(strconv.Itoa(m.detail.pid)), m.detailLines(w-4, n))
 }
 
-// detailLines are exactly n lines: who the process is and its CPU history, or
-// the news that it is gone.
+// detailLines are exactly n lines: who the process is, its CPU history and its
+// threads, or the news that it is gone.
 func (m *Model) detailLines(w, n int) []string {
 	var lines []string
 	if p, alive := m.detailProc(); alive {
 		lines = append(lines, m.identityLines(p)...)
 		lines = append(lines, "")
 		lines = append(lines, m.chartLines(w)...)
+		lines = append(lines, "")
+		lines = append(lines, m.threadLines(w)...)
 	} else {
 		lines = m.goneLines(p)
 	}
@@ -215,6 +226,45 @@ func (m *Model) chartLines(w int) []string {
 		m.styles.dim.Render(fmt.Sprintf("scale 0-%.0f%%", top)), // the steps are whole numbers
 	}, gap)
 	return []string{title, m.styles.accent.Render(sparkline(hist, w, top))}
+}
+
+// threadLines are the thread list: its title, the column titles and the rows
+// that fit from the scroll position, or why there is nothing to list.
+func (m *Model) threadLines(w int) []string {
+	d := m.detail.data
+	title := m.styles.dim.Render("Threads")
+	switch {
+	case d.pid == 0:
+		return []string{title, m.styles.dim.Render("reading threads…")}
+	}
+
+	rows := m.threadRows()
+	switch {
+	case rows == 0 && len(d.threads) > 0:
+		title += " " + m.styles.text.Render(fmt.Sprintf("(%d, enlarge the window)", len(d.threads)))
+	case len(d.threads) > rows:
+		first := 1
+		last := min(rows, len(d.threads))
+		title += " " + m.styles.text.Render(fmt.Sprintf("%d-%d of %d", first, last, len(d.threads)))
+	default:
+		title += " " + m.styles.text.Render(fmt.Sprintf("(%d)", len(d.threads)))
+	}
+
+	const tidW, stateW, timeW = 7, 1, 9
+	nameW := w - tidW - stateW - timeW - 3
+	lines := []string{title, m.styles.head.Render(strings.Join([]string{
+		cell("TID", tidW, true), cell("S", stateW, false), cell("TIME", timeW, true), cell("NAME", nameW, false),
+	}, " "))}
+	for i := 0; i < len(d.threads) && i < rows; i++ {
+		t := d.threads[i]
+		lines = append(lines, m.paint(t.State, []string{
+			cell(strconv.Itoa(t.TID), tidW, true),
+			cell(clean(string(rune(t.State))), stateW, false),
+			cell(formatCPUTime(t.CPUTime), timeW, true),
+			cell(clean(t.Comm), nameW, false),
+		}, 1, lipgloss.NewStyle()))
+	}
+	return lines
 }
 
 // goneLines say that the process is no more, and what it was.
