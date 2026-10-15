@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -213,6 +214,76 @@ func TestCmdline(t *testing.T) {
 	t.Run("process is gone", func(t *testing.T) {
 		if _, err := fixtureFS().Cmdline(99999); !errors.Is(err, oserr.ErrProcessGone) {
 			t.Fatalf("err = %v, want ErrProcessGone", err)
+		}
+	})
+}
+
+func TestThreads(t *testing.T) {
+	t.Run("one entry per thread with its own state, vanished thread skipped", func(t *testing.T) {
+		got, err := fixtureFS().Threads(1234)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Task 1237 exists as a directory but its stat file is gone: skipped, not fatal.
+		type brief struct {
+			TID   int
+			Comm  string
+			State byte
+			Nice  int
+		}
+		var have []brief
+		for _, th := range got {
+			have = append(have, brief{th.PID, th.Comm, th.State, th.Nice})
+		}
+		want := []brief{
+			{1234, "firefox", 'S', 0},
+			{1235, "Web Content", 'R', -5},
+			{1236, "gmain", 'D', 5},
+		}
+		if !reflect.DeepEqual(have, want) {
+			t.Fatalf("Threads(1234) = %+v, want %+v", have, want)
+		}
+	})
+
+	t.Run("single-threaded process", func(t *testing.T) {
+		got, err := fixtureFS().Threads(2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].PID != 2 {
+			t.Fatalf("Threads(2) = %+v, want exactly thread 2", got)
+		}
+	})
+
+	t.Run("sorted by numeric tid, not by name", func(t *testing.T) {
+		fs := tempFS(t, map[string]string{
+			"5/task/9/stat":   statLine(9, "nine", 'S'),
+			"5/task/10/stat":  statLine(10, "ten", 'S'),
+			"5/task/100/stat": statLine(100, "hundred", 'S'),
+		})
+		got, err := fs.Threads(5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var tids []int
+		for _, th := range got {
+			tids = append(tids, th.PID)
+		}
+		if want := []int{9, 10, 100}; !slices.Equal(tids, want) {
+			t.Fatalf("tids = %v, want %v", tids, want)
+		}
+	})
+
+	t.Run("process is gone", func(t *testing.T) {
+		if _, err := fixtureFS().Threads(99999); !errors.Is(err, oserr.ErrProcessGone) {
+			t.Fatalf("err = %v, want ErrProcessGone", err)
+		}
+	})
+
+	t.Run("malformed thread stat is an error", func(t *testing.T) {
+		fs := tempFS(t, map[string]string{"5/task/5/stat": "garbage\n"})
+		if _, err := fs.Threads(5); err == nil {
+			t.Fatal("expected an error for a malformed thread stat")
 		}
 	})
 }

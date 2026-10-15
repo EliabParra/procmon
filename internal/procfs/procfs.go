@@ -4,6 +4,7 @@
 package procfs
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -75,3 +76,5 @@ func (f FS) readPidFile(pid int, name ...string) ([]byte, error) {
 	data, err := os.ReadFile(filepath.Join(parts...))
 	return data, oserr.Classify(err)
 }
+
+func isGone(err error) bool { return errors.Is(err, oserr.ErrProcessGone) }

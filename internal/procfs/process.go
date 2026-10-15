@@ -3,8 +3,13 @@ package procfs
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/EliabParra/procmon/internal/oserr"
 )
 
 // ProcStat is the subset of /proc/[pid]/stat the monitor needs.
@@ -172,4 +177,40 @@ func (f FS) Cmdline(pid int) (string, error) {
 	}
 	data = bytes.TrimRight(data, "\x00")
 	return string(bytes.ReplaceAll(data, []byte{0}, []byte{' '})), nil
+}
+
+// Threads parses /proc/[pid]/task/[tid]/stat for every thread of pid, sorted
+// by TID. Each result's PID field holds the thread id. A thread that exits
+// between listing the directory and reading its stat is skipped.
+func (f FS) Threads(pid int) ([]ProcStat, error) {
+	taskDir := filepath.Join(f.Root, strconv.Itoa(pid), "task")
+	entries, err := os.ReadDir(taskDir)
+	if err != nil {
+		return nil, oserr.Classify(err)
+	}
+
+	var tids []int
+	for _, e := range entries {
+		if tid, ok := parsePID(e.Name()); ok {
+			tids = append(tids, tid)
+		}
+	}
+	sort.Ints(tids)
+
+	threads := make([]ProcStat, 0, len(tids))
+	for _, tid := range tids {
+		data, err := f.readPidFile(pid, "task", strconv.Itoa(tid), "stat")
+		if err != nil {
+			if isGone(err) {
+				continue // the thread exited while we were looking
+			}
+			return nil, err
+		}
+		st, err := parseStat(data)
+		if err != nil {
+			return nil, fmt.Errorf("procfs: pid %d thread %d: %w", pid, tid, err)
+		}
+		threads = append(threads, st)
+	}
+	return threads, nil
 }
