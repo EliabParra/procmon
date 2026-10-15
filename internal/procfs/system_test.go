@@ -1,6 +1,7 @@
 package procfs
 
 import (
+	"encoding/binary"
 	"errors"
 	"testing"
 
@@ -192,6 +193,47 @@ func TestUptime(t *testing.T) {
 		t.Run("error: "+tt.name, func(t *testing.T) {
 			if _, err := tempFS(t, map[string]string{"uptime": tt.data}).Uptime(); err == nil {
 				t.Fatal("expected an error")
+			}
+		})
+	}
+}
+
+// auxv encodes (key, value) pairs the way the kernel does on 64-bit little-endian.
+func auxv(words ...uint64) string {
+	buf := make([]byte, 8*len(words))
+	for i, w := range words {
+		binary.LittleEndian.PutUint64(buf[8*i:], w)
+	}
+	return string(buf)
+}
+
+func TestClockTicks(t *testing.T) {
+	const atNull, atPageSize, atClkTck = 0, 6, 17
+
+	tests := []struct {
+		name string
+		fs   FS
+		want int
+	}{
+		{name: "AT_CLKTCK from the fixture auxv", fs: fixtureFS(), want: 250},
+		{name: "found after other entries", want: 128,
+			fs: tempFS(t, map[string]string{"self/auxv": auxv(atPageSize, 4096, atClkTck, 128, atNull, 0)})},
+		{name: "no auxv file falls back to 100", fs: tempFS(t, nil), want: 100},
+		{name: "no AT_CLKTCK entry falls back to 100",
+			fs: tempFS(t, map[string]string{"self/auxv": auxv(atPageSize, 4096, atNull, 0)}), want: 100},
+		{name: "AT_NULL ends the vector before AT_CLKTCK",
+			fs: tempFS(t, map[string]string{"self/auxv": auxv(atNull, 0, atClkTck, 250)}), want: 100},
+		{name: "zero value falls back to 100",
+			fs: tempFS(t, map[string]string{"self/auxv": auxv(atClkTck, 0, atNull, 0)}), want: 100},
+		{name: "truncated entry falls back to 100",
+			fs: tempFS(t, map[string]string{"self/auxv": auxv(atPageSize, 4096, atClkTck)}), want: 100},
+		{name: "empty file falls back to 100",
+			fs: tempFS(t, map[string]string{"self/auxv": ""}), want: 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.fs.ClockTicks(); got != tt.want {
+				t.Fatalf("ClockTicks() = %d, want %d", got, tt.want)
 			}
 		})
 	}

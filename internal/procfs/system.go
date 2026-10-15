@@ -1,6 +1,7 @@
 package procfs
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -215,4 +216,42 @@ func (f FS) Uptime() (float64, error) {
 		return 0, fmt.Errorf("procfs: /proc/uptime: %w", err)
 	}
 	return up, nil
+}
+
+const (
+	defaultClockTicks = 100 // USER_HZ on every mainstream Linux architecture
+	auxvNull          = 0   // AT_NULL: end of the auxiliary vector
+	auxvClockTicks    = 17  // AT_CLKTCK: frequency of times(2), i.e. CLK_TCK
+)
+
+// ClockTicks returns CLK_TCK, the unit of the utime/stime/starttime fields.
+// Go has no sysconf(_SC_CLK_TCK), so it reads the same value the kernel
+// hands to every process in its auxiliary vector (Root/self/auxv: pairs of
+// 64-bit little-endian key and value). Falls back to 100 when unavailable.
+func (f FS) ClockTicks() int {
+	data, err := f.readSystemFile(filepath.Join("self", "auxv"))
+	if err != nil {
+		return defaultClockTicks
+	}
+	if hz, ok := clockTicksFromAuxv(data); ok {
+		return hz
+	}
+	return defaultClockTicks
+}
+
+func clockTicksFromAuxv(data []byte) (int, bool) {
+	const word = 8
+	for len(data) >= 2*word {
+		key := binary.LittleEndian.Uint64(data)
+		value := binary.LittleEndian.Uint64(data[word:])
+		switch key {
+		case auxvNull:
+			return 0, false
+		case auxvClockTicks:
+			hz := int(value)
+			return hz, hz > 0
+		}
+		data = data[2*word:]
+	}
+	return 0, false
 }
