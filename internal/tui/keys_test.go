@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/EliabParra/procmon/internal/monitor"
 )
 
@@ -144,12 +146,96 @@ func TestFilterEscapeCancels(t *testing.T) {
 	}
 }
 
+func TestFilterEmptyClears(t *testing.T) {
+	m := loaded(120, 30, proc(1, "systemd", 1), proc(2, "bash", 5))
+	filtered(m, "bash")
+
+	press(m, "/")
+	press(m, "backspace", "backspace", "backspace", "backspace")
+	press(m, "enter")
+
+	if len(m.rows) != 2 {
+		t.Errorf("an empty filter must show everything, got %v", rowPIDs(m))
+	}
+	if strings.Contains(screenText(m), "filter bash") {
+		t.Error("the filter pill must disappear when the filter is empty")
+	}
+}
+
+func TestFilterInputStartsFromTheCurrentFilter(t *testing.T) {
+	m := loaded(120, 30, proc(1, "systemd", 1), proc(2, "bash", 5), proc(3, "basic", 3))
+	filtered(m, "bash")
+
+	press(m, "/", "backspace", "backspace") // bash -> ba
+	press(m, "enter")
+
+	if got := rowPIDs(m); fmt.Sprint(got) != "[2 3]" {
+		t.Errorf("rows = %v, want [2 3]", got)
+	}
+}
+
+func TestFilterWithoutMatches(t *testing.T) {
+	m := loaded(120, 30, proc(1, "systemd", 1), proc(2, "bash", 5))
+	filtered(m, "nothing")
+
+	if !strings.Contains(screenText(m), `no processes match "nothing"`) {
+		t.Errorf("the table must explain why it is empty:\n%s", screenText(m))
+	}
+	if m.selected() != 0 {
+		t.Errorf("selected PID = %d, want 0", m.selected())
+	}
+	press(m, "down", "end") // must not panic
+	press(m, "/", "ctrl+u", "enter")
+	if m.selected() == 0 {
+		t.Error("clearing the filter must select a row again")
+	}
+}
+
 func TestFilterKeepsTheSelectionWhenItStillMatches(t *testing.T) {
 	m := loaded(120, 30, proc(1, "bash-a", 1), proc(2, "zsh", 5), proc(3, "bash-b", 9))
 	press(m, "end") // bash-a, the last by CPU
 	filtered(m, "bash")
 	if m.selected() != 1 {
 		t.Errorf("selected PID = %d, want 1", m.selected())
+	}
+}
+
+func TestFilterBackspaceAndClearLine(t *testing.T) {
+	m := loaded(120, 30, proc(1, "abc", 1))
+	press(m, "/")
+	typeText(m, "abcd")
+	press(m, "backspace")
+	if m.input.String() != "abc" {
+		t.Errorf("input = %q, want abc", m.input.String())
+	}
+	press(m, "ctrl+u")
+	if m.input.String() != "" {
+		t.Errorf("ctrl+u must clear the line, got %q", m.input.String())
+	}
+	press(m, "backspace") // on an empty line: harmless
+}
+
+func TestFilterTypingMultibyteText(t *testing.T) {
+	m := loaded(120, 30, proc(1, "日本語", 1), proc(2, "bash", 1))
+	press(m, "/")
+	typeText(m, "日本語")
+	press(m, "backspace")
+	if m.input.String() != "日本" {
+		t.Errorf("backspace must remove a whole rune, got %q", m.input.String())
+	}
+}
+
+func TestFilterPasteIsSingleLineAndClean(t *testing.T) {
+	m := loaded(120, 30, proc(1, "bash", 1))
+	press(m, "/")
+	m.Update(tea.PasteMsg{Content: "ba\x1b[2Jsh\n"})
+	if got := m.input.String(); got != "ba?[2Jsh" {
+		t.Errorf("pasted text = %q", got)
+	}
+	m2 := loaded(120, 30, proc(1, "bash", 1))
+	m2.Update(tea.PasteMsg{Content: "x"}) // outside an input: ignored
+	if m2.input.String() != "" {
+		t.Error("paste outside an input must be ignored")
 	}
 }
 

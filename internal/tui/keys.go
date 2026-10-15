@@ -79,6 +79,10 @@ func (m *Model) inputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.commitInput()
 	case "esc":
 		m.endInput()
+	case "backspace":
+		m.input.Backspace()
+	case "ctrl+u":
+		m.input.Reset()
 	default:
 		if msg.Text != "" {
 			m.input.Insert(msg.Text)

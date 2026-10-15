@@ -12,5 +12,12 @@ func (l *lineInput) Set(s string) { l.text = []rune(clean(s)) }
 // so a paste cannot smuggle a newline or an escape sequence in.
 func (l *lineInput) Insert(s string) { l.text = append(l.text, []rune(clean(s))...) }
 
+// Backspace removes the last rune.
+func (l *lineInput) Backspace() {
+	if len(l.text) > 0 {
+		l.text = l.text[:len(l.text)-1]
+	}
+}
+
 // Reset empties the line.
 func (l *lineInput) Reset() { l.text = nil }
