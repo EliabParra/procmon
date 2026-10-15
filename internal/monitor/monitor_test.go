@@ -133,6 +133,32 @@ func TestRefreshNewProcessStartsAtZero(t *testing.T) {
 	near(t, "new process %CPU", byPID(t, snap, 40).CPUPercent, 0)
 }
 
+func TestRefreshRecycledPIDIsNeverSubtracted(t *testing.T) {
+	src := fourCoreMachine().add(proc{pid: 10, utime: 1000, start: 1000})
+	src.tick(1000)
+	m := newTestMonitor(t, src)
+	mustRefresh(t, m)
+
+	tests := []struct {
+		name  string
+		start uint64
+		utime uint64
+		want  float64
+	}{
+		{"new process with more ticks than the old one", 2000, 5000, 0},
+		{"new process with fewer ticks than the old one", 3000, 10, 0},
+		{"same process keeps being measured", 3000, 110, 25},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src.stats[10] = procfs.ProcStat{PID: 10, State: 'S', StartTime: tt.start, UTime: tt.utime}
+			src.tick(400)
+			snap := mustRefresh(t, m)
+			near(t, "%CPU", byPID(t, snap, 10).CPUPercent, tt.want)
+		})
+	}
+}
+
 func TestRefreshCountersGoingBackwardsGiveZero(t *testing.T) {
 	t.Run("process counter", func(t *testing.T) {
 		src := fourCoreMachine().add(proc{pid: 10, utime: 500})

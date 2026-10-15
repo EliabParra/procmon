@@ -7,9 +7,12 @@ import (
 	"github.com/EliabParra/procmon/internal/oserr"
 )
 
-// sample is what Refresh remembers about a process to measure it next time.
+// sample is what Refresh remembers about a process to measure it next time. The
+// start time is part of the identity: a PID that comes back with another start
+// time is a different process and must not be compared with the old one.
 type sample struct {
-	ticks uint64 // utime + stime
+	startTime uint64
+	ticks     uint64 // utime + stime
 }
 
 // Monitor takes snapshots of a Source and remembers the previous one, which is
@@ -78,10 +81,10 @@ func (m *Monitor) Refresh() (Snapshot, error) {
 		if !ok {
 			continue
 		}
-		if old, seen := m.prev[pid]; seen {
+		if old, seen := m.prev[pid]; seen && old.startTime == p.StartTime {
 			p.CPUPercent = CPUPercent(sub(ticks, old.ticks), sysDelta)
 		}
-		next[pid] = sample{ticks: ticks}
+		next[pid] = sample{startTime: p.StartTime, ticks: ticks}
 		procs = append(procs, p)
 	}
 	Sort(procs, ByPID)
