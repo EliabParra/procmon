@@ -143,6 +143,43 @@ func TestTableKeysDoNothingInTheDetail(t *testing.T) {
 	}
 }
 
+func TestProcessThatExitsWhileTheDetailIsOpen(t *testing.T) {
+	m, _ := editorSetup(120, 35)
+	openDetail(m)
+
+	// The next refresh no longer lists PID 200.
+	m.Update(refreshedMsg{snap: snapshotOf(proc(100, "shell", 1), proc(300, "other", 2))})
+
+	out := screenText(m)
+	if !strings.Contains(out, "process 200 no longer exists") {
+		t.Errorf("a clear message is expected:\n%s", out)
+	}
+	if strings.Contains(out, "state S sleeping") {
+		t.Error("stale details of the dead process must not stay on screen")
+	}
+	assertFits(t, m, 120, 35)
+
+	press(m, "esc")
+	if m.view != viewTable {
+		t.Error("esc must still go back")
+	}
+}
+
+func TestRecycledPIDIsNotTheSameProcess(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	openDetail(m)
+
+	other := proc(200, "a-stranger", 0)
+	other.StartTime = 999 // same PID, another start time: another process
+	m.Update(refreshedMsg{snap: snapshotOf(proc(100, "shell", 1), other)})
+	_ = mon
+
+	out := screenText(m)
+	if !strings.Contains(out, "no longer exists") || strings.Contains(out, "a-stranger") {
+		t.Errorf("a reused PID must not be shown as the old process:\n%s", out)
+	}
+}
+
 func TestStateNames(t *testing.T) {
 	for state, want := range map[byte]string{
 		'R': "running", 'S': "sleeping", 'D': "disk sleep", 'Z': "zombie", 'T': "stopped",

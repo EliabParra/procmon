@@ -72,7 +72,7 @@ func (m *Model) trackDetail() {
 // then the last one seen.
 func (m *Model) detailProc() (p monitor.Process, alive bool) {
 	p, ok := m.snapProc(m.detail.pid)
-	if ok {
+	if ok && p.StartTime == m.detail.startTime {
 		return p, true
 	}
 	return m.detail.last, false
@@ -95,11 +95,15 @@ func (m *Model) detailBox(w, n int) []string {
 	return m.frame(w, m.styles.dim.Render("detail"), m.styles.dim.Render(strconv.Itoa(m.detail.pid)), m.detailLines(w-4, n))
 }
 
-// detailLines are exactly n lines: who the process is.
+// detailLines are exactly n lines: who the process is, or the news that it is
+// gone.
 func (m *Model) detailLines(w, n int) []string {
 	var lines []string
-	p, _ := m.detailProc()
-	lines = append(lines, m.identityLines(p)...)
+	if p, alive := m.detailProc(); alive {
+		lines = append(lines, m.identityLines(p)...)
+	} else {
+		lines = m.goneLines(p)
+	}
 	out := make([]string, n)
 	copy(out, lines)
 	return out
@@ -154,4 +158,13 @@ func stateName(state byte) string {
 	default:
 		return "unknown"
 	}
+}
+
+// goneLines say that the process is no more, and what it was.
+func (m *Model) goneLines(last monitor.Process) []string {
+	lines := []string{m.styles.err.Render(fmt.Sprintf("process %d no longer exists", m.detail.pid))}
+	if last.Command != "" {
+		lines = append(lines, m.styles.dim.Render("it was "+clean(last.Command)))
+	}
+	return append(lines, "", m.styles.dim.Render("press esc to go back to the table"))
 }
