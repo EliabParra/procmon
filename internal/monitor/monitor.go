@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/EliabParra/procmon/internal/oserr"
@@ -52,27 +53,28 @@ func New(src Source, opts ...Option) *Monitor {
 // total jiffies (the course formula, a share of the whole machine), so the
 // first call reports 0 for everything. A process that exits while being read is
 // skipped; one whose status or command line is not readable keeps its row with
-// what could be read.
+// what could be read. Only a failure of a system-wide file returns an error,
+// and then the previous baseline is kept.
 func (m *Monitor) Refresh() (Snapshot, error) {
 	pids, err := m.src.PIDs()
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, fmt.Errorf("monitor: list processes: %w", err)
 	}
 	sys, err := m.src.SystemStat()
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, fmt.Errorf("monitor: read cpu counters: %w", err)
 	}
 	mem, err := m.src.MemInfo()
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, fmt.Errorf("monitor: read memory: %w", err)
 	}
 	load, err := m.src.LoadAvg()
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, fmt.Errorf("monitor: read load average: %w", err)
 	}
 	uptime, err := m.src.Uptime()
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, fmt.Errorf("monitor: read uptime: %w", err)
 	}
 
 	hz := m.src.ClockTicks()

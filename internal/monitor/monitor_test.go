@@ -323,3 +323,46 @@ func TestRefreshKeepsTheRowWhenDetailsCannotBeRead(t *testing.T) {
 		})
 	}
 }
+
+func TestRefreshFailsOnSystemWideErrors(t *testing.T) {
+	boom := errors.New("boom")
+	tests := []struct {
+		name   string
+		mutate func(*fakeSource)
+	}{
+		{"listing the pids", func(f *fakeSource) { f.pidsErr = boom }},
+		{"/proc/stat", func(f *fakeSource) { f.sysErr = boom }},
+		{"/proc/meminfo", func(f *fakeSource) { f.memErr = boom }},
+		{"/proc/loadavg", func(f *fakeSource) { f.loadErr = boom }},
+		{"/proc/uptime", func(f *fakeSource) { f.uptimeErr = boom }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := fourCoreMachine().add(proc{pid: 10})
+			tt.mutate(src)
+			if _, err := newTestMonitor(t, src).Refresh(); !errors.Is(err, boom) {
+				t.Fatalf("Refresh() error = %v, want it to wrap %v", err, boom)
+			}
+		})
+	}
+}
+
+func TestFailedRefreshKeepsThePreviousBaseline(t *testing.T) {
+	src := fourCoreMachine().add(proc{pid: 10, utime: 100})
+	src.tick(1000)
+	m := newTestMonitor(t, src)
+	mustRefresh(t, m)
+
+	src.memErr = errors.New("boom")
+	src.tick(200)
+	src.burn(10, 25)
+	if _, err := m.Refresh(); err == nil {
+		t.Fatal("expected the refresh to fail")
+	}
+
+	// The next good refresh is measured against the first one: 400 jiffies and 50 ticks.
+	src.memErr = nil
+	src.tick(200)
+	src.burn(10, 25)
+	near(t, "%CPU", byPID(t, mustRefresh(t, m), 10).CPUPercent, 12.5)
+}
