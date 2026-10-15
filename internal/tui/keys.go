@@ -65,6 +65,9 @@ func (m *Model) tableKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.setSort(monitor.ByMem)
 	case "p":
 		m.setSort(monitor.ByPID)
+	case "t":
+		m.tree = !m.tree
+		m.rebuild()
 	case "/":
 		m.startInput(modeFilter, m.filter)
 	}

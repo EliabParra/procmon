@@ -61,8 +61,10 @@ type Model struct {
 	filter  string    // only processes whose name contains it are listed
 	input   lineInput // what is being typed in modeFilter and modeInterval
 	notice  notice    // a one-off message, gone on the next key
+	tree    bool      // the table shows parents and children instead of a flat list
 
 	rows    []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
+	prefix  []string          // tree connectors of each row; nil in the flat table
 	matches int               // processes that match the filter (rows also holds ancestors)
 	cursor  int               // index in rows of the selected row
 	offset  int               // index in rows of the first visible row
@@ -146,7 +148,9 @@ func tickAfter(d time.Duration, gen int) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return tickMsg{gen: gen} })
 }
 
-// rebuild recomputes the table from the last snapshot: filter, then sort.
+// rebuild recomputes the table from the last snapshot: filter, then sort, then
+// (in the tree view) arrange parents before children, so the tree follows the
+// sort key among siblings.
 //
 // Once the user has picked a row the selection stays on the same process even
 // if the order changed; when that process is gone the cursor stays at the same
@@ -156,10 +160,19 @@ func tickAfter(d time.Duration, gen int) tea.Cmd {
 func (m *Model) rebuild() {
 	matched := monitor.Filter(m.snap.Processes, m.filter)
 	m.matches = len(matched)
+	m.prefix = nil
 
 	rows := matched
 	monitor.Sort(rows, m.sortKey)
 
+	if m.tree {
+		built := monitor.BuildTree(rows)
+		rows = make([]monitor.Process, len(built))
+		m.prefix = make([]string, len(built))
+		for i, r := range built {
+			rows[i], m.prefix[i] = r.Process, r.Prefix
+		}
+	}
 	m.rows = rows
 
 	if !m.picked {

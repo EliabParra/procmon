@@ -19,7 +19,8 @@ const (
 func (m *Model) headerBox(w int) []string {
 	left := m.styles.title.Render("procmon") + " " +
 		m.styles.pill("refresh", formatInterval(m.interval)) + " " +
-		m.styles.pill("sort", sortName(m.sortKey))
+		m.styles.pill("sort", sortName(m.sortKey)) + " " +
+		m.styles.pill("view", m.viewName())
 	if m.filter != "" {
 		left += " " + m.styles.pill("filter", fmt.Sprintf("%s (%d)", clean(m.filter), m.matches))
 	}
@@ -29,6 +30,15 @@ func (m *Model) headerBox(w int) []string {
 		right = m.styles.dim.Render(m.snap.TakenAt.Format("3:04:05 PM")) // 12-hour clock
 	}
 	return m.frame(w, left, right, m.summaryLines(w-4))
+}
+
+// viewName is what the view pill says: the flat table, the tree or the detail.
+func (m *Model) viewName() string {
+	switch {
+	case m.tree:
+		return "tree"
+	}
+	return "table"
 }
 
 func sortName(k monitor.SortKey) string {

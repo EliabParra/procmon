@@ -168,6 +168,9 @@ func (m *Model) tableLines(w, n int) (head string, body []string) {
 		cells := make([]string, len(cols))
 		for j, c := range cols {
 			text := m.cellText(p, c.id)
+			if c.id == colCommand && at < len(m.prefix) {
+				text = m.prefix[at] + text // the tree connectors
+			}
 			cells[j] = cell(text, width(c), c.right)
 		}
 		body[i] = m.styleRow(p, cells, cols, at == m.cursor)
