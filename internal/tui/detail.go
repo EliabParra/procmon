@@ -12,12 +12,30 @@ import (
 	"github.com/EliabParra/procmon/internal/monitor"
 )
 
+// detailData is what the detail screen reads about one process on every
+// refresh: its CPU history and its threads.
+type detailData struct {
+	pid     int // 0 when nothing has been read yet
+	history []float64
+}
+
+// readDetail reads the detail of pid. It runs inside a command, off the
+// update loop, because listing the threads of a big process takes a while.
+func readDetail(mon Monitor, pid int) detailData {
+	return detailData{pid: pid, history: mon.History(pid)}
+}
+
+// detailMsg carries the detail read right after the screen was opened, so it
+// does not wait for the next refresh.
+type detailMsg detailData
+
 // detail is the open detail screen. PID and start time together identify the
 // process: the same PID with another start time is a different process.
 type detail struct {
 	pid       int
 	startTime uint64
 	last      monitor.Process // the last row seen, to name the process once it is gone
+	data      detailData
 }
 
 // snapProc finds a process of the last snapshot.
@@ -48,13 +66,29 @@ func (m *Model) openDetail() tea.Cmd {
 	m.picked = true
 	m.view = viewDetail
 	m.detail = detail{pid: p.PID, startTime: p.StartTime, last: p}
-	return nil
+	mon := m.mon
+	return func() tea.Msg { return detailMsg(readDetail(mon, p.PID)) }
 }
 
 func (m *Model) closeDetail() {
 	m.view = viewTable
 	m.detail = detail{}
 	m.scrollToCursor()
+}
+
+// watchedPID is the process whose detail the next refresh must read, or 0.
+func (m *Model) watchedPID() int {
+	if m.view == viewDetail {
+		return m.detail.pid
+	}
+	return 0
+}
+
+// applyDetail stores freshly read detail data, unless the screen has moved on.
+func (m *Model) applyDetail(d detailData) {
+	if m.view == viewDetail && d.pid != 0 && d.pid == m.detail.pid {
+		m.detail.data = d
+	}
 }
 
 // trackDetail remembers the open process as the last snapshot shows it.
@@ -95,12 +129,14 @@ func (m *Model) detailBox(w, n int) []string {
 	return m.frame(w, m.styles.dim.Render("detail"), m.styles.dim.Render(strconv.Itoa(m.detail.pid)), m.detailLines(w-4, n))
 }
 
-// detailLines are exactly n lines: who the process is, or the news that it is
-// gone.
+// detailLines are exactly n lines: who the process is and its CPU history, or
+// the news that it is gone.
 func (m *Model) detailLines(w, n int) []string {
 	var lines []string
 	if p, alive := m.detailProc(); alive {
 		lines = append(lines, m.identityLines(p)...)
+		lines = append(lines, "")
+		lines = append(lines, m.chartLines(w)...)
 	} else {
 		lines = m.goneLines(p)
 	}
@@ -158,6 +194,26 @@ func stateName(state byte) string {
 	default:
 		return "unknown"
 	}
+}
+
+// chartLines are the title with the figures of the series and the sparkline
+// of the CPU history, as wide as the box.
+func (m *Model) chartLines(w int) []string {
+	hist := m.detail.data.history
+	title := m.styles.dim.Render("CPU history")
+	if len(hist) == 0 {
+		return []string{title, m.styles.dim.Render("no samples yet")}
+	}
+	lo, avg, hi := seriesStats(hist)
+	top := 100.0
+	pct := func(v float64) string { return fmt.Sprintf("%.1f%%", v) }
+	title += gap + strings.Join([]string{
+		m.kv("min", pct(lo)),
+		m.kv("avg", pct(avg)),
+		m.kv("max", pct(hi)),
+		m.styles.dim.Render(fmt.Sprintf("%d samples", len(hist))),
+	}, gap)
+	return []string{title, m.styles.accent.Render(sparkline(hist, w, top))}
 }
 
 // goneLines say that the process is no more, and what it was.

@@ -39,6 +39,17 @@ func openDetail(m *Model) {
 	deliver(m, press(m, "enter"))
 }
 
+// sparkRow is the line of the screen that holds only block characters.
+func sparkRow(m *Model) string {
+	for _, l := range screen(m) {
+		inner := strings.Trim(l, "│ ")
+		if inner != "" && strings.Trim(inner, string(sparkBlocks)) == "" {
+			return inner
+		}
+	}
+	return ""
+}
+
 func TestEnterOpensTheDetailOfTheSelectedProcess(t *testing.T) {
 	m, _ := editorSetup(120, 35)
 	openDetail(m)
@@ -67,6 +78,35 @@ func TestEnterOnAnEmptyTableSaysThereIsNothingToOpen(t *testing.T) {
 	if !strings.Contains(screenText(m), "no process selected") {
 		t.Errorf("the status line must say so:\n%s", screenText(m))
 	}
+}
+
+func TestDetailDrawsTheCPUHistory(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	openDetail(m)
+	out := screenText(m)
+
+	for _, want := range []string{"CPU history", "min 0.0%", "avg 36.0%", "max 100.0%", "5 samples"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the chart is missing %q:\n%s", want, out)
+		}
+	}
+	const inner = 120 - 4
+	if got, want := sparkRow(m), sparkline(mon.history[200], inner, 100); got != want {
+		t.Errorf("sparkline =\n%q\nwant it to fill the %d columns:\n%q", got, inner, want)
+	}
+	if !strings.Contains(sparkRow(m), "█") {
+		t.Error("the 100% sample must reach the top block")
+	}
+}
+
+func TestDetailChartWithoutSamples(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	mon.history = nil
+	openDetail(m)
+	if !strings.Contains(screenText(m), "no samples yet") {
+		t.Errorf("an empty history must say so:\n%s", screenText(m))
+	}
+	assertFits(t, m, 120, 35)
 }
 
 func TestDetailHeaderHighlightsTheState(t *testing.T) {

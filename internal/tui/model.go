@@ -41,10 +41,12 @@ type (
 	// chain it belongs to, so a tick scheduled before an interval change is
 	// recognised as stale and dropped.
 	tickMsg struct{ gen int }
-	// refreshedMsg carries the result of one Monitor.Refresh.
+	// refreshedMsg carries the result of one Monitor.Refresh and, while the
+	// detail screen is open, what was read about its process right after.
 	refreshedMsg struct {
-		snap monitor.Snapshot
-		err  error
+		snap   monitor.Snapshot
+		err    error
+		detail detailData
 	}
 )
 
@@ -131,6 +133,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuild()
 			m.trackDetail()
 		}
+		m.applyDetail(msg.detail)
+	case detailMsg:
+		m.applyDetail(detailData(msg))
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case tea.PasteMsg:
@@ -148,10 +153,13 @@ func (m *Model) refreshCmd() tea.Cmd {
 		return nil
 	}
 	m.refreshing = true
-	mon := m.mon
+	mon, watched := m.mon, m.watchedPID()
 	return func() tea.Msg {
 		snap, err := mon.Refresh()
 		msg := refreshedMsg{snap: snap, err: err}
+		if watched != 0 {
+			msg.detail = readDetail(mon, watched)
+		}
 		return msg
 	}
 }
