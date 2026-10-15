@@ -51,8 +51,12 @@ func (m *Model) render() string {
 	var lines []string
 	if l.boxed {
 		lines = append(lines, m.headerBox(w)...)
+		lines = append(lines, m.tableBox(w, l.tableRows)...)
 	} else {
 		lines = append(lines, m.summaryLines(w)[0])
+		head, body := m.tableLines(w, l.tableRows)
+		lines = append(lines, head)
+		lines = append(lines, body...)
 	}
 	return fitLines(lines, w, h)
 }

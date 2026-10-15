@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -43,6 +44,10 @@ type Model struct {
 	snap       monitor.Snapshot
 	haveSnap   bool
 	refreshErr error // the last Refresh failed; the old snapshot stays on screen
+
+	sortKey monitor.SortKey
+
+	rows []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
 }
 
 // Option customizes a Model.
@@ -55,6 +60,7 @@ func New(mon Monitor, ctl Control, opts ...Option) *Model {
 		ctl:      ctl,
 		styles:   newStyles(false),
 		interval: DefaultInterval,
+		sortKey:  monitor.ByCPU,
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -82,6 +88,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshErr = msg.err
 		if msg.err == nil {
 			m.snap, m.haveSnap = msg.snap, true
+			m.rebuild()
 		}
 	}
 	return m, nil
@@ -104,4 +111,14 @@ func (m *Model) refreshCmd() tea.Cmd {
 
 func tickAfter(d time.Duration, gen int) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return tickMsg{gen: gen} })
+}
+
+// rebuild recomputes the table from the last snapshot: it sorts the rows.
+func (m *Model) rebuild() {
+	matched := slices.Clone(m.snap.Processes)
+
+	rows := matched
+	monitor.Sort(rows, m.sortKey)
+
+	m.rows = rows
 }

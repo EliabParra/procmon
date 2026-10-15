@@ -2,12 +2,15 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/EliabParra/procmon/internal/monitor"
 )
@@ -141,4 +144,135 @@ func TestHeaderBeforeTheFirstRefresh(t *testing.T) {
 	if !strings.Contains(screenText(m), "waiting for the first refresh") {
 		t.Error("the header must say it is waiting for data")
 	}
+}
+
+func TestTableShowsEveryColumnWhenThereIsRoom(t *testing.T) {
+	m := loaded(140, 30, proc(1234, "/usr/bin/foo --bar", 12.34))
+	header := columnHeaderLine(t, m)
+	for _, title := range []string{"PID", "PPID", "USER", "S", "%CPU", "%MEM", "RES", "THR", "PRI", "NI", "TIME", "COMMAND"} {
+		if !hasColumn(header, title) {
+			t.Errorf("column %q is missing: %q", title, header)
+		}
+	}
+}
+
+func TestTableRowFormatsEachField(t *testing.T) {
+	p := monitor.Process{
+		PID: 1234, PPID: 1, User: "eliab", State: 'R', CPUPercent: 12.34, MemPercent: 5.67,
+		RSSKB: 1536 * 1024, Threads: 12, Priority: 20, Nice: 0,
+		CPUTime: 83*time.Second + 450*time.Millisecond, Command: "/usr/bin/foo --bar", Comm: "foo",
+	}
+	m := loaded(140, 30, p)
+	want := regexp.MustCompile(`1234\s+1\s+eliab\s+R\s+12\.3\s+5\.7\s+1\.5G\s+12\s+20\s+0\s+1:23\.45\s+/usr/bin/foo --bar`)
+	if out := screenText(m); !want.MatchString(out) {
+		t.Errorf("the row does not read pid ppid user state cpu mem res thr pri ni time command:\n%s", out)
+	}
+}
+
+func TestNarrowTerminalDropsColumnsButKeepsTheCommand(t *testing.T) {
+	cmd := "/usr/bin/some-long-command --with --arguments"
+	tests := []struct {
+		width   int
+		dropped []string
+		kept    []string
+	}{
+		{width: 140, dropped: nil, kept: []string{"PPID", "USER", "THR", "PRI", "TIME", "RES"}},
+		{width: 80, dropped: []string{"PPID"}, kept: []string{"PID", "%CPU", "%MEM", "NI", "COMMAND"}},
+		{width: 50, dropped: []string{"PPID", "THR", "PRI", "USER"}, kept: []string{"PID", "S", "%CPU", "NI", "COMMAND"}},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprint(tt.width), func(t *testing.T) {
+			m := loaded(tt.width, 24, proc(1234, cmd, 3))
+			assertFits(t, m, tt.width, 24)
+			header := columnHeaderLine(t, m)
+			for _, d := range tt.dropped {
+				if hasColumn(header, d) {
+					t.Errorf("column %s should be dropped at width %d: %q", d, tt.width, header)
+				}
+			}
+			for _, k := range tt.kept {
+				if !hasColumn(header, k) {
+					t.Errorf("column %s should stay at width %d: %q", k, tt.width, header)
+				}
+			}
+		})
+	}
+}
+
+// hasColumn reports whether line, a table header, has a column called title.
+func hasColumn(line, title string) bool {
+	clear := strings.NewReplacer("│", " ", "▲", " ", "▼", " ").Replace(line)
+	return slices.Contains(strings.Fields(clear), title)
+}
+
+// columnHeaderLine returns the line of the table that holds the column titles.
+func columnHeaderLine(t *testing.T, m *Model) string {
+	t.Helper()
+	for _, l := range screen(m) {
+		if strings.Contains(l, "COMMAND") {
+			return l
+		}
+	}
+	t.Fatalf("no column header on screen:\n%s", screenText(m))
+	return ""
+}
+
+func TestCommandIsTruncatedWithAnEllipsis(t *testing.T) {
+	m := loaded(80, 24, proc(1, "/usr/bin/"+strings.Repeat("very-long-", 20)+"tail-marker", 3))
+	out := screenText(m)
+	if !strings.Contains(out, "…") {
+		t.Errorf("a long command must end in an ellipsis:\n%s", out)
+	}
+	if strings.Contains(out, "tail-marker") {
+		t.Error("the end of the command must be cut")
+	}
+}
+
+func TestRealTimePriorityIsShownAsRT(t *testing.T) {
+	p := proc(7, "migration/0", 0)
+	p.Priority = -100
+	out := screenText(loaded(140, 30, p))
+	if !regexp.MustCompile(`\brt\b`).MatchString(out) {
+		t.Errorf("a real-time priority must read rt:\n%s", out)
+	}
+}
+
+func TestEmptyTableSaysSo(t *testing.T) {
+	m := loaded(100, 30)
+	if !strings.Contains(screenText(m), "no processes") {
+		t.Error("an empty table must say there is nothing to show")
+	}
+}
+
+// Any process can put anything in its command line. What reaches the terminal
+// must be exactly what a harmless command with '?' in place of each control
+// character would produce, so no escape sequence is ever interpreted.
+func TestHostileTextCannotReachTheTerminal(t *testing.T) {
+	hostile := proc(2, "evil\x1b[31m\tred\x1b[2J\x07bell\n\xff", 1)
+	hostile.User = "u\x1b[2Jser"
+	harmless := proc(2, "evil?[31m?red?[2J?bell??", 1)
+	harmless.User = "u?[2Jser"
+
+	first := proc(1, "first", 50) // the selected row, so the hostile one is plain
+	got := loaded(120, 30, first, hostile)
+	want := loaded(120, 30, first, harmless)
+
+	if got.View().Content != want.View().Content {
+		t.Errorf("hostile text changed the output:\n%s\nwant\n%s", got.View().Content, want.View().Content)
+	}
+	for _, l := range strings.Split(got.View().Content, "\n") {
+		if strings.Contains(l, "evil") {
+			plain := ansi.Strip(l)
+			if strings.ContainsRune(plain, '\x1b') {
+				t.Errorf("an ESC byte reached the row: %q", l)
+			}
+			if !strings.Contains(plain, "evil?[31m?red?[2J?bell??") {
+				t.Errorf("the control characters must show as '?': %q", plain)
+			}
+			if w := lipgloss.Width(l); w != 120 {
+				t.Errorf("the row is %d columns wide, want 120", w)
+			}
+		}
+	}
+	assertFits(t, got, 120, 30)
 }

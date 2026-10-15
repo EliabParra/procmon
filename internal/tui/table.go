@@ -1,0 +1,167 @@
+package tui
+
+import (
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/EliabParra/procmon/internal/monitor"
+)
+
+type colID int
+
+const (
+	colPID colID = iota
+	colPPID
+	colUser
+	colState
+	colCPU
+	colMem
+	colRes
+	colThr
+	colPri
+	colNice
+	colTime
+	colCommand
+)
+
+// column describes one column of the table.
+type column struct {
+	id    colID
+	title string
+	width int  // 0 for COMMAND, which takes what the others leave
+	right bool // numbers line up on the right
+	drop  int  // 0 never goes; on a narrow terminal the lowest number goes first
+}
+
+var columns = []column{
+	{colPID, "PID", 7, true, 0},
+	{colPPID, "PPID", 7, true, 1},
+	{colUser, "USER", 10, false, 4},
+	{colState, "S", 1, false, 0},
+	{colCPU, "%CPU", 6, true, 0},
+	{colMem, "%MEM", 5, true, 7},
+	{colRes, "RES", 5, true, 6},
+	{colThr, "THR", 5, true, 2},
+	{colPri, "PRI", 3, true, 3},
+	{colNice, "NI", 3, true, 0},
+	{colTime, "TIME", 9, true, 5},
+	{colCommand, "COMMAND", 0, false, 0},
+}
+
+// minCommand is the least room worth giving the command before dropping
+// another column.
+const minCommand = 12
+
+// fitColumns chooses the columns that fit in w and the width COMMAND gets.
+// Columns are dropped (least important first) until the command has
+// minCommand columns or nothing else can go.
+func fitColumns(w int) (cols []column, commandWidth int) {
+	cols = slices.Clone(columns)
+	for {
+		fixed := len(cols) - 1 // the gaps
+		for _, c := range cols {
+			fixed += c.width
+		}
+		commandWidth = w - fixed
+		if commandWidth >= minCommand {
+			return cols, commandWidth
+		}
+		victim := -1
+		for i, c := range cols {
+			if c.drop > 0 && (victim < 0 || c.drop < cols[victim].drop) {
+				victim = i
+			}
+		}
+		if victim < 0 {
+			return cols, max(0, commandWidth)
+		}
+		cols = slices.Delete(cols, victim, victim+1)
+	}
+}
+
+// cellText is the text of one field of a process, before padding.
+func (m *Model) cellText(p monitor.Process, id colID) string {
+	switch id {
+	case colPID:
+		return strconv.Itoa(p.PID)
+	case colPPID:
+		return strconv.Itoa(p.PPID)
+	case colUser:
+		return clean(p.User)
+	case colState:
+		return clean(string(rune(p.State)))
+	case colCPU:
+		return fmt.Sprintf("%.1f", p.CPUPercent)
+	case colMem:
+		return fmt.Sprintf("%.1f", p.MemPercent)
+	case colRes:
+		return humanKB(p.RSSKB)
+	case colThr:
+		return strconv.Itoa(p.Threads)
+	case colPri:
+		if p.Priority < -99 { // real-time priorities do not fit the column
+			return "rt"
+		}
+		return strconv.Itoa(p.Priority)
+	case colNice:
+		return strconv.Itoa(p.Nice)
+	case colTime:
+		return formatCPUTime(p.CPUTime)
+	default:
+		return clean(p.Command)
+	}
+}
+
+// tableLines returns the column titles and exactly n body lines, all w
+// columns wide: the visible window of the rows, then blank lines.
+func (m *Model) tableLines(w, n int) (head string, body []string) {
+	cols, commandWidth := fitColumns(w)
+	width := func(c column) int {
+		if c.id == colCommand {
+			return commandWidth
+		}
+		return c.width
+	}
+
+	titles := make([]string, len(cols))
+	for i, c := range cols {
+		title := c.title
+		style := m.styles.head
+		titles[i] = style.Render(cell(title, width(c), c.right))
+	}
+	head = strings.Join(titles, " ")
+
+	body = make([]string, n)
+	if len(m.rows) == 0 {
+		if n > 0 {
+			body[0] = m.styles.dim.Render(m.emptyMessage())
+		}
+		return head, body
+	}
+	for i := range body {
+		at := i
+		if at >= len(m.rows) {
+			break
+		}
+		p := m.rows[at]
+		cells := make([]string, len(cols))
+		for j, c := range cols {
+			text := m.cellText(p, c.id)
+			cells[j] = cell(text, width(c), c.right)
+		}
+		body[i] = strings.Join(cells, " ")
+	}
+	return head, body
+}
+
+func (m *Model) emptyMessage() string {
+	return "no processes to show"
+}
+
+// tableBox is the rounded box around the table.
+func (m *Model) tableBox(w, n int) []string {
+	head, body := m.tableLines(w-4, n)
+	return m.frame(w, m.styles.dim.Render("processes"), "", append([]string{head}, body...))
+}
