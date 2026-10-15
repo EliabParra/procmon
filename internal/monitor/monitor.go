@@ -1,6 +1,11 @@
 package monitor
 
-import "time"
+import (
+	"errors"
+	"time"
+
+	"github.com/EliabParra/procmon/internal/oserr"
+)
 
 // Monitor takes snapshots of a Source.
 type Monitor struct {
@@ -28,7 +33,8 @@ func New(src Source, opts ...Option) *Monitor {
 }
 
 // Refresh reads every process and returns a Snapshot, processes in ascending
-// PID order.
+// PID order. A process that exits while being read is skipped; one whose status
+// or command line is not readable keeps its row with what could be read.
 func (m *Monitor) Refresh() (Snapshot, error) {
 	pids, err := m.src.PIDs()
 	if err != nil {
@@ -67,11 +73,18 @@ func (m *Monitor) readProcess(pid, hz int, memTotalKB uint64) (p Process, ticks 
 	}
 
 	user, rss := "?", uint64(0)
-	if status, err := m.src.Status(pid); err == nil {
+	status, err := m.src.Status(pid)
+	switch {
+	case errors.Is(err, oserr.ErrProcessGone):
+		return Process{}, 0, false
+	case err == nil:
 		user, rss = m.users.Name(status.UID), status.VmRSSKB
 	}
 
 	command, err := m.src.Cmdline(pid)
+	if errors.Is(err, oserr.ErrProcessGone) {
+		return Process{}, 0, false
+	}
 	if err != nil || command == "" {
 		command = "[" + st.Comm + "]"
 	}

@@ -1,9 +1,13 @@
 package monitor
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/EliabParra/procmon/internal/oserr"
 )
 
 func mustRefresh(t *testing.T, m *Monitor) Snapshot {
@@ -57,5 +61,92 @@ func TestRefreshCommandFallsBackToComm(t *testing.T) {
 	}
 	if got := byPID(t, snap, 3).Command; got != "bash -l" {
 		t.Fatalf("Command = %q, want bash -l", got)
+	}
+}
+
+func TestRefreshSkipsProcessesThatExit(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*fakeSource)
+	}{
+		{"gone before stat", func(f *fakeSource) { f.statErr[10] = oserr.ErrProcessGone }},
+		{"gone before status", func(f *fakeSource) { f.statusErr[10] = oserr.ErrProcessGone }},
+		{"gone before cmdline", func(f *fakeSource) { f.cmdlineErr[10] = oserr.ErrProcessGone }},
+		{"listed but already removed", func(f *fakeSource) {
+			delete(f.stats, 10)
+			delete(f.statuses, 10)
+			delete(f.cmdlines, 10)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := fourCoreMachine().add(proc{pid: 10}).add(proc{pid: 20})
+			tt.mutate(src)
+			snap, err := newTestMonitor(t, src).Refresh()
+			if err != nil {
+				t.Fatalf("Refresh() error = %v, want none", err)
+			}
+			if got, want := pids(snap.Processes), []int{20}; !slices.Equal(got, want) {
+				t.Fatalf("processes = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestRefreshSkipsAProcessWhoseStatIsUnreadable(t *testing.T) {
+	for name, cause := range map[string]error{
+		"permission denied": oserr.ErrPermission,
+		"malformed":         fmt.Errorf("procfs: pid 10: malformed stat"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			src := fourCoreMachine().add(proc{pid: 10}).add(proc{pid: 20})
+			src.statErr[10] = cause
+			snap, err := newTestMonitor(t, src).Refresh()
+			if err != nil {
+				t.Fatalf("Refresh() error = %v, want none", err)
+			}
+			if got, want := pids(snap.Processes), []int{20}; !slices.Equal(got, want) {
+				t.Fatalf("processes = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestRefreshKeepsTheRowWhenDetailsCannotBeRead(t *testing.T) {
+	denied := oserr.ErrPermission
+	broken := errors.New("procfs: malformed status")
+	tests := []struct {
+		name        string
+		setup       func(*fakeSource)
+		wantUser    string
+		wantRSS     uint64
+		wantCommand string
+	}{
+		{"status permission denied", func(f *fakeSource) { f.statusErr[10] = denied }, "?", 0, "sleep 100"},
+		{"status malformed", func(f *fakeSource) { f.statusErr[10] = broken }, "?", 0, "sleep 100"},
+		{"cmdline permission denied", func(f *fakeSource) { f.cmdlineErr[10] = denied }, "root", 500, "[sleep]"},
+		{"cmdline malformed", func(f *fakeSource) { f.cmdlineErr[10] = broken }, "root", 500, "[sleep]"},
+		{"both denied", func(f *fakeSource) { f.statusErr[10], f.cmdlineErr[10] = denied, denied }, "?", 0, "[sleep]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := fourCoreMachine().add(proc{pid: 10, comm: "sleep", uid: 0, rssKB: 500, cmdline: "sleep 100", utime: 30})
+			tt.setup(src)
+			snap, err := newTestMonitor(t, src).Refresh()
+			if err != nil {
+				t.Fatalf("Refresh() error = %v, want none", err)
+			}
+			got := byPID(t, snap, 10)
+			if got.User != tt.wantUser || got.RSSKB != tt.wantRSS || got.Command != tt.wantCommand {
+				t.Fatalf("user=%q rss=%d command=%q, want user=%q rss=%d command=%q",
+					got.User, got.RSSKB, got.Command, tt.wantUser, tt.wantRSS, tt.wantCommand)
+			}
+			if got.CPUTime != 300*time.Millisecond || got.State != 'S' {
+				t.Fatalf("what Stat gave was lost: CPUTime=%v State=%c", got.CPUTime, got.State)
+			}
+			if got.MemPercent != float64(tt.wantRSS)/10 { // total memory is 1000 kB
+				t.Fatalf("MemPercent = %v for RSS %d", got.MemPercent, tt.wantRSS)
+			}
+		})
 	}
 }
