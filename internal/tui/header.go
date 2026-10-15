@@ -32,7 +32,7 @@ func (m *Model) headerBox(w int) []string {
 	if m.haveSnap {
 		right = m.styles.dim.Render(m.snap.TakenAt.Format("3:04:05 PM")) // 12-hour clock
 	}
-	return m.frame(w, left, right, m.summaryLines(w-4))
+	return m.frame(w, left, right, m.summaryLines())
 }
 
 // viewName is what the view pill says: the flat table, the tree or the detail.
@@ -60,7 +60,7 @@ func sortName(k monitor.SortKey) string {
 // summaryLines are the three lines of the header: task counts, load and
 // uptime, memory and swap. The first one is also the whole header of a small
 // terminal.
-func (m *Model) summaryLines(w int) []string {
+func (m *Model) summaryLines() []string {
 	if !m.haveSnap {
 		return []string{m.styles.dim.Render("waiting for the first refresh…"), "", ""}
 	}

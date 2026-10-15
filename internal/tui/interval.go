@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -41,9 +42,9 @@ func nextInterval(cur time.Duration, dir int) (time.Duration, bool) {
 		}
 		return cur, false
 	}
-	for i := len(intervalSteps) - 1; i >= 0; i-- {
-		if intervalSteps[i] < cur {
-			return intervalSteps[i], true
+	for _, s := range slices.Backward(intervalSteps) {
+		if s < cur {
+			return s, true
 		}
 	}
 	return cur, false

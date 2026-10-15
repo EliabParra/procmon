@@ -60,7 +60,7 @@ func (m *Model) render() string {
 			lines = append(lines, m.tableBox(w, l.tableRows)...)
 		}
 	} else {
-		lines = append(lines, m.summaryLines(w)[0])
+		lines = append(lines, m.summaryLines()[0])
 		if m.view == viewDetail {
 			lines = append(lines, m.detailLines(w, m.detailRows())...)
 		} else {
