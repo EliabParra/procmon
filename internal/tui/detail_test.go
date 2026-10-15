@@ -230,3 +230,35 @@ func TestStateNames(t *testing.T) {
 		}
 	}
 }
+
+// scaleSetup opens the detail of a process with the given CPU history, in the
+// units of the monitor, on a machine with that many cores.
+func scaleSetup(history []float64, cores int, opts ...Option) (*Model, *fakeMonitor) {
+	mon := &fakeMonitor{history: map[int][]float64{200: history}}
+	snap := snapshotOf(proc(200, "burner", 25))
+	snap.Cores = cores
+	mon.snap = snap
+	m := New(mon, &fakeControl{}, opts...)
+	m.Update(windowSize(120, 35))
+	m.Update(refreshedMsg{snap: snap})
+	deliver(m, press(m, "enter"))
+	return m, mon
+}
+
+func TestDetailChartOfAnIdleProcessIsFlat(t *testing.T) {
+	m, _ := scaleSetup([]float64{0, 0, 0}, 4)
+	if row := sparkRow(m); row == "" || strings.Trim(row, "▁") != "" {
+		t.Errorf("an idle series must draw only the lowest block: %q", row)
+	}
+}
+
+func TestDetailChartShowsTheLargestSampleAsTheTallestColumn(t *testing.T) {
+	m, _ := scaleSetup([]float64{1, 6, 3}, 4)
+	row := sparkRow(m)
+	if !strings.Contains(row, "▅") || strings.ContainsAny(row, "▆▇█") {
+		t.Errorf("6 on a scale of 10 draws ▅ at most: %q", row)
+	}
+	if !strings.Contains(row, "▂") || !strings.Contains(row, "▃") {
+		t.Errorf("1 and 3 draw ▂ and ▃, below the 6: %q", row)
+	}
+}

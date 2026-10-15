@@ -30,6 +30,59 @@ func TestSparklineLevels(t *testing.T) {
 	}
 }
 
+func TestSparkScale(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []float64
+		limit  float64
+		want   float64
+	}{
+		{"all zeros keep the floor", []float64{0, 0, 0}, 100, 1},
+		{"no samples keep the floor", nil, 100, 1},
+		{"noise below the floor does not stretch the chart", []float64{0, 0.4, 0.1}, 100, 1},
+		{"exactly the floor", []float64{1}, 100, 1},
+		{"just above the floor", []float64{1.01}, 100, 2},
+		{"1 6 3 round up to 10", []float64{1, 6, 3}, 100, 10},
+		{"2 is a step", []float64{2}, 100, 2},
+		{"3 rounds up to 5", []float64{3}, 100, 5},
+		{"5 is a step", []float64{5}, 100, 5},
+		{"5.1 rounds up to 10", []float64{5.1}, 100, 10},
+		{"11 rounds up to 20", []float64{4, 11, 7}, 100, 20},
+		{"21 rounds up to 50", []float64{21}, 100, 50},
+		{"60 rounds up to 100", []float64{0, 60}, 100, 100},
+		{"100 is a step", []float64{100}, 100, 100},
+		{"per-core above one core goes past 100", []float64{80, 160, 240}, 1600, 500},
+		{"per-core 1000 is a step", []float64{1000}, 1600, 1000},
+		{"never above the whole machine", []float64{50, 105}, 100, 100},
+		{"per-core never above all the cores", []float64{150, 99999}, 400, 400},
+		{"NaN, infinite and negative samples count as zero", []float64{math.NaN(), math.Inf(1), -5}, 100, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sparkScale(tt.values, tt.limit); got != tt.want {
+				t.Errorf("sparkScale(%v, limit %v) = %v, want %v", tt.values, tt.limit, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNiceCeilSteps(t *testing.T) {
+	steps := []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000}
+	for i, step := range steps {
+		if got := niceCeil(step); got != step {
+			t.Errorf("niceCeil(%v) = %v, a step is its own ceiling", step, got)
+		}
+		if i > 0 {
+			if got := niceCeil(steps[i-1] + 0.5); got != step {
+				t.Errorf("niceCeil(%v) = %v, want the next step %v", steps[i-1]+0.5, got, step)
+			}
+		}
+	}
+	if got := niceCeil(0.2); got != 1 {
+		t.Errorf("niceCeil(0.2) = %v, want the floor 1", got)
+	}
+}
+
 func TestSparklineFillsTheWidthByStretching(t *testing.T) {
 	tests := []struct {
 		name   string

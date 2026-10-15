@@ -205,13 +205,14 @@ func (m *Model) chartLines(w int) []string {
 		return []string{title, m.styles.dim.Render("no samples yet")}
 	}
 	lo, avg, hi := seriesStats(hist)
-	top := 100.0
+	top := sparkScale(hist, 100)
 	pct := func(v float64) string { return fmt.Sprintf("%.1f%%", v) }
 	title += gap + strings.Join([]string{
 		m.kv("min", pct(lo)),
 		m.kv("avg", pct(avg)),
 		m.kv("max", pct(hi)),
 		m.styles.dim.Render(fmt.Sprintf("%d samples", len(hist))),
+		m.styles.dim.Render(fmt.Sprintf("scale 0-%.0f%%", top)), // the steps are whole numbers
 	}, gap)
 	return []string{title, m.styles.accent.Render(sparkline(hist, w, top))}
 }

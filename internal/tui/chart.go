@@ -10,6 +10,32 @@ var sparkBlocks = []rune("▁▂▃▄▅▆▇█")
 // stretch to fill the chart.
 const sparkMin = 1.0
 
+// niceCeil is the smallest step of 1, 2, 5, 10, 20, 50, 100, 200, 500, ... (1,
+// 2 and 5 times a power of ten) that is at least v. Anything up to sparkMin
+// gives sparkMin.
+func niceCeil(v float64) float64 {
+	if !(v > sparkMin) { // also catches NaN
+		return sparkMin
+	}
+	for decade := 1.0; ; decade *= 10 {
+		for _, step := range [...]float64{1, 2, 5} {
+			if step*decade >= v {
+				return step * decade
+			}
+		}
+	}
+}
+
+// sparkScale is the value a full-height block stands for: the largest sample
+// rounded up to a nice step, never below sparkMin and never above limit, the
+// whole machine in the active %CPU mode (a sample past it is clock skew
+// between the two /proc reads and is drawn clipped, the figures above the
+// chart still show it).
+func sparkScale(values []float64, limit float64) float64 {
+	_, _, peak := seriesStats(values)
+	return math.Min(niceCeil(peak), math.Max(limit, sparkMin))
+}
+
 // sparkline draws values, oldest first, as width block characters against a
 // scale where top is the highest block. It always fills the width: with fewer
 // samples than columns each sample is stretched over several columns, with
