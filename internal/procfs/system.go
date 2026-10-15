@@ -199,3 +199,20 @@ func parseLoadAvg(data []byte) (LoadAvg, error) {
 	}
 	return la, nil
 }
+
+// Uptime returns the seconds since boot (first field of /proc/uptime).
+func (f FS) Uptime() (float64, error) {
+	data, err := f.readSystemFile("uptime")
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("procfs: /proc/uptime is empty")
+	}
+	up, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0, fmt.Errorf("procfs: /proc/uptime: %w", err)
+	}
+	return up, nil
+}

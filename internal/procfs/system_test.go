@@ -173,3 +173,26 @@ func TestLoadAvg(t *testing.T) {
 		})
 	}
 }
+
+func TestUptime(t *testing.T) {
+	t.Run("fixture", func(t *testing.T) {
+		got, err := fixtureFS().Uptime()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != 92090.29 {
+			t.Fatalf("Uptime() = %v, want 92090.29", got)
+		}
+	})
+
+	for _, tt := range []struct{ name, data string }{
+		{"empty file", ""},
+		{"non numeric", "soon 1.0\n"},
+	} {
+		t.Run("error: "+tt.name, func(t *testing.T) {
+			if _, err := tempFS(t, map[string]string{"uptime": tt.data}).Uptime(); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
