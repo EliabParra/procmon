@@ -169,3 +169,100 @@ line at the last `)` (one fixture is a process called `my (weird) app`).
 | Threads: TID, state, TIME, name | `/proc/[pid]/task/[tid]/stat` (fields 1, 3, 14 + 15, 2) |
 | CPU history | The last 60 %CPU samples of the process, one per refresh, kept in memory by `monitor` in the unit of the course formula and drawn in the active %CPU mode, on an autoscaled chart (see the next section) |
 
+## How %CPU is computed
+
+The course statement gives the formula: divide the difference of the process by the difference of the system.
+That is what the program computes and what it shows by default:
+
+```
+%CPU = (delta of the process's utime+stime) / (delta of the total jiffies of /proc/stat) x 100
+```
+
+The result is the share of the **whole machine**, from 0 to 100. The `cpu` line of `/proc/stat` adds up all
+cores, so on 4 cores a process that keeps one core flat out gives 25. Example: 4 cores, 1 s, 100 ticks/s: the
+system grows by 400 ticks, a process that grew by 100 ticks shows 100 / 400 x 100 = 25%.
+
+- **Two samples.** `Refresh` remembers, for every PID, its `utime+stime` and the system total of the previous
+  refresh. The total is the sum of the eight columns of the `cpu` line (user, nice, system, idle, iowait, irq,
+  softirq, steal; guest is ignored because the kernel already counts it inside user).
+- **One canonical value.** `monitor.CPUPercent` returns the formula above and nothing else; the history ring
+  buffer, the sort and every comparison use that value. The display mode below only changes how the screen
+  draws it, so switching it never reorders the table or rewrites the history.
+- **Per-core mode (`I`).** Press `I` (Shift+i) to see what `top` shows by default, its Irix mode: the same
+  figure multiplied by the number of cores (`monitor.PerCore`), so 100 means one core flat out and a
+  multithreaded process can go beyond it (up to 100 x cores). The same example reads 100 / 400 x 100 x 4 =
+  100%. `top` has the same switch under Shift+I: Irix mode on is per-core, off (called Solaris mode) is the
+  share of the whole machine. Pressing `I` again goes back to the formula of the course. The header pill says
+  `cpu machine` or `cpu per-core`, a one-line notice says what 100 means, and `-cpu-mode core` starts in
+  per-core mode. The mode applies to the table, the tree, the CPU line of the detail view and its history
+  chart; on a machine with 1 core the two modes are the same.
+- **History chart scale.** The detail view draws the last 60 samples as a one-line bar chart. Its top is the
+  largest sample rounded up to a step of 1, 2, 5, 10, 20, 50, 100, 200, 500... (1, 2 or 5 times a power of
+  ten), with a floor of 1%: a light process fills the chart, an idle one stays on the lowest block instead of
+  amplifying counter noise. The label `scale 0-10%` next to min, avg and max says what a full-height block
+  stands for, and those three figures are always the real ones. The top never goes above the whole machine in
+  the active mode (100, or 100 x cores in per-core mode): a sample past that is a skew between the two `/proc`
+  reads and is drawn clipped. Example: the samples 1, 6 and 3 give `scale 0-10%`, and the 6 is the tallest
+  column.
+- **First sample is 0.** With no previous sample there is no delta. The same applies to a process that first
+  appears at a later refresh. The screen schedules the second refresh no later than 0.5 s after start, so the
+  column does not sit at zero for a whole interval.
+- **A recycled PID is not the same process.** Samples are matched by PID and start time (`stat` field 22). The
+  same PID with another start time is a new process: its delta starts from zero and its history is reset.
+- **Counters going backwards give 0**, not a huge unsigned number (saturating subtraction).
+- **A failed refresh keeps the previous baseline**, so the next successful one still has something to subtract.
+- **Not clamped.** The two files are read a moment apart, so a busy process can read a fraction of a point
+  above 100 in the default mode; the code shows what the formula gives.
+- **Resolution** is one clock tick of the process. In per-core mode it moves %CPU by 100 / (CLK_TCK x interval
+  in seconds) points: 1 point at 1 s, 5 points at the 0.2 s minimum. In the default mode divide that by the
+  number of cores (0.25 points at 1 s on 4 cores).
+
+## Acting on processes
+
+All actions go through `internal/control`, which calls `syscall.Kill`, `syscall.Getpriority` and
+`syscall.Setpriority`. Numbers below are for Linux on x86-64 and arm64.
+
+| Key | Function | Signal | Effect | Can the process prevent it? |
+|---|---|---|---|---|
+| `x` | `Terminate` | SIGTERM (15) | Asks the process to exit; it can clean up first | Yes: it can handle or ignore it |
+| `X` | `Kill` | SIGKILL (9) | The kernel ends the process; nothing runs in it | No |
+| `s` | `Suspend` | SIGSTOP (19) | Stops the process; it shows state T | No: cannot be caught, blocked or ignored |
+| `r` | `Resume` | SIGCONT (18) | Continues a stopped process | A handler may run, but the process continues anyway |
+
+**Priority.** `n` changes the nice value, from -20 (highest priority) to 19 (lowest). The owner can raise the
+value; lowering it needs root or `CAP_SYS_NICE` (the kernel also allows it within the target's `RLIMIT_NICE`).
+On Linux the nice value belongs to a single thread, so `getpriority`/`setpriority` with a PID act on the main
+thread, the one `/proc/[pid]/stat` reports.
+
+**The `20 - nice` detail.** The raw `getpriority` system call returns `20 - nice` (1 to 40), so that -1 never
+looks like an error. glibc converts it back; Go's `syscall` package does not, so `control.Priority` returns
+`20 - raw`. Nice 10 is the fixed point of that formula, which is why the round-trip test also uses 5 and 15.
+
+**Safety rails**
+
+1. `control` rejects `pid <= 0` before any system call: `kill(0, sig)` signals the caller's whole process group
+   and `kill(-1, sig)` every process the caller may signal.
+2. The screen refuses to act on procmon's own PID (`WithSelfPID`, default `os.Getpid()`). It checks when the
+   key is pressed and again right before the signal or `setpriority`.
+3. The target (PID, start time, name) is captured when the action starts, so a refresh under an open question
+   cannot redirect the answer. Right before every signal or `setpriority` the screen calls `Monitor.Verify`,
+   which re-reads `/proc/[pid]/stat` and compares the start time. If the process is gone or the PID now
+   belongs to another process, nothing is sent and the message says "process N no longer exists".
+4. Every signal key asks first, naming the action, the PID and the command. Force kill has its own wording:
+   it is drawn in the alarm colour and says "the process cannot clean up". While a question is open, only `y`,
+   `n` and `Esc` answer it. On a narrow line the explanation is cut first, then the end of the name; the PID
+   and the answer stay (force kill's "Press y to confirm, n to cancel" becomes `y/n` below 60 columns).
+5. Text from `/proc` is sanitised before it is drawn: control characters (an ESC would start a terminal
+   sequence) and invalid UTF-8 become `?`.
+
+**What `Verify` does not close.** It narrows the stale-row window from "up to one refresh interval" to the few
+microseconds between its read of `stat` and the `kill(2)` call. It cannot close it: the PID could still be
+recycled in between. Only a pidfd (`pidfd_open(2)` plus `pidfd_send_signal(2)`), which refers to one specific
+process, would.
+
+**Messages.** Every action reports what happened, naming the action, the PID and the command, for example
+`SIGSTOP sent to 4321 (firefox) — stopped` or `nice of 4321 (firefox) set from 0 to 5`. Failures never crash the
+program: `process 4321 no longer exists`, `permission denied: only root or the owner of 4321 (firefox) can send
+SIGSTOP`, `permission denied: lowering nice needs root (CAP_SYS_NICE); only the owner can raise it`, `invalid
+nice "abc": not a whole number`.
+
