@@ -35,6 +35,13 @@ type MemInfo struct {
 	SwapFreeKB     uint64
 }
 
+// LoadAvg is /proc/loadavg.
+type LoadAvg struct {
+	One, Five, Fifteen float64
+	Running            int // currently runnable kernel scheduling entities
+	Total              int // existing kernel scheduling entities
+}
+
 // readSystemFile reads Root/<name>. These files always exist on a live
 // system, so errors are NOT classified as "process gone".
 func (f FS) readSystemFile(name string) ([]byte, error) {
@@ -152,4 +159,43 @@ func parseMemInfo(data []byte) (MemInfo, error) {
 		return MemInfo{}, fmt.Errorf("no MemTotal line")
 	}
 	return mi, nil
+}
+
+// LoadAvg parses /proc/loadavg: "1min 5min 15min running/total lastpid".
+func (f FS) LoadAvg() (LoadAvg, error) {
+	data, err := f.readSystemFile("loadavg")
+	if err != nil {
+		return LoadAvg{}, err
+	}
+	la, err := parseLoadAvg(data)
+	if err != nil {
+		return LoadAvg{}, fmt.Errorf("procfs: /proc/loadavg: %w", err)
+	}
+	return la, nil
+}
+
+func parseLoadAvg(data []byte) (LoadAvg, error) {
+	fields := strings.Fields(string(data))
+	if len(fields) < 4 {
+		return LoadAvg{}, fmt.Errorf("%d fields, need at least 4", len(fields))
+	}
+	running, total, ok := strings.Cut(fields[3], "/")
+	if !ok {
+		return LoadAvg{}, fmt.Errorf("entities %q is not running/total", fields[3])
+	}
+
+	var la LoadAvg
+	var err error
+	for i, dst := range []*float64{&la.One, &la.Five, &la.Fifteen} {
+		if *dst, err = strconv.ParseFloat(fields[i], 64); err != nil {
+			return LoadAvg{}, err
+		}
+	}
+	var p fieldParser
+	la.Running = p.int(running)
+	la.Total = p.int(total)
+	if p.err != nil {
+		return LoadAvg{}, p.err
+	}
+	return la, nil
 }

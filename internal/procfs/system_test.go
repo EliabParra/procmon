@@ -142,3 +142,34 @@ func TestMemInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAvg(t *testing.T) {
+	t.Run("fixture", func(t *testing.T) {
+		got, err := fixtureFS().LoadAvg()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := LoadAvg{One: 0.51, Five: 0.37, Fifteen: 0.25, Running: 2, Total: 3265}
+		if got != want {
+			t.Fatalf("LoadAvg() = %+v, want %+v", got, want)
+		}
+	})
+
+	errCases := []struct {
+		name string
+		data string
+	}{
+		{name: "too few fields", data: "0.5 0.4 0.3\n"},
+		{name: "entities without slash", data: "0.5 0.4 0.3 23 99\n"},
+		{name: "non numeric load", data: "x 0.4 0.3 2/3 99\n"},
+		{name: "non numeric entities", data: "0.5 0.4 0.3 a/b 99\n"},
+		{name: "empty file", data: ""},
+	}
+	for _, tt := range errCases {
+		t.Run("error: "+tt.name, func(t *testing.T) {
+			if _, err := tempFS(t, map[string]string{"loadavg": tt.data}).LoadAvg(); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
