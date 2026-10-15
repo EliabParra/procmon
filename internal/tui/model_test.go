@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +94,28 @@ func TestStaleTickIsIgnored(t *testing.T) {
 	}
 	if mon.count() != 0 {
 		t.Errorf("Refresh called %d times, want 0", mon.count())
+	}
+}
+
+func TestRefreshErrorShowsInTheStatusLineAndKeepsRunning(t *testing.T) {
+	m := loaded(120, 30, proc(1, "init", 0), proc(2, "bash", 0))
+
+	_, cmd := m.Update(refreshedMsg{err: errors.New("monitor: read memory: boom")})
+
+	if isQuit(cmd) {
+		t.Error("a refresh error must not quit")
+	}
+	out := screenText(m)
+	if !strings.Contains(out, "monitor: read memory: boom") {
+		t.Errorf("the error is not in the status line:\n%s", out)
+	}
+	if !strings.Contains(out, "bash") {
+		t.Error("the last good snapshot must stay on screen")
+	}
+
+	m.Update(refreshedMsg{snap: snapshotOf(proc(1, "init", 0))})
+	if strings.Contains(screenText(m), "boom") {
+		t.Error("the error must clear after a good refresh")
 	}
 }
 

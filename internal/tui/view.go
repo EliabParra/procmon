@@ -58,7 +58,12 @@ func (m *Model) render() string {
 		lines = append(lines, head)
 		lines = append(lines, body...)
 	}
-	return fitLines(lines, w, h)
+	// The last row is the footer's whatever the height: a question or a message
+	// is never cut away while the keys can still answer it.
+	rows := make([]string, h)
+	copy(rows, lines[:min(len(lines), h-1)])
+	rows[h-1] = m.footer(w)
+	return fitLines(rows, w, h)
 }
 
 // fitLines makes the output exactly h lines of at most w columns each.
