@@ -135,3 +135,50 @@ func TestStatPermissionDenied(t *testing.T) {
 		t.Fatalf("Stat on an unreadable file = %v, want ErrPermission", err)
 	}
 }
+
+func TestStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		pid  int
+		want ProcStatus
+	}{
+		// Uid line is "1000 1001 1002 1003": the first one is the real UID.
+		{name: "real uid and rss", pid: 1234, want: ProcStatus{UID: 1000, VmRSSKB: 412344}},
+		{name: "kernel thread has no VmRSS", pid: 2, want: ProcStatus{UID: 0, VmRSSKB: 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fixtureFS().Status(tt.pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("Status(%d) = %+v, want %+v", tt.pid, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStatusErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    map[string]string
+		wantGone bool
+	}{
+		{name: "process is gone", files: map[string]string{}, wantGone: true},
+		{name: "missing Uid line", files: map[string]string{"7/status": "Name:\tx\nVmRSS:\t10 kB\n"}},
+		{name: "non numeric Uid", files: map[string]string{"7/status": "Uid:\tabc\t0\t0\t0\n"}},
+		{name: "non numeric VmRSS", files: map[string]string{"7/status": "Uid:\t0\t0\t0\t0\nVmRSS:\tabc kB\n"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tempFS(t, tt.files).Status(7)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if got := errors.Is(err, oserr.ErrProcessGone); got != tt.wantGone {
+				t.Fatalf("errors.Is(ErrProcessGone) = %v, want %v (err=%v)", got, tt.wantGone, err)
+			}
+		})
+	}
+}

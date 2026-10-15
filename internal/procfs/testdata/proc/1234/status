@@ -1,0 +1,18 @@
+Name:	firefox
+Umask:	0022
+State:	S (sleeping)
+Tgid:	1234
+Ngid:	0
+Pid:	1234
+PPid:	1
+TracerPid:	0
+Uid:	1000	1001	1002	1003
+Gid:	1000	1000	1000	1000
+FDSize:	256
+Groups:	3 90 1000 
+VmPeak:	 4000000 kB
+VmSize:	 3900000 kB
+VmHWM:	  500000 kB
+VmRSS:	  412344 kB
+RssAnon:	  300000 kB
+Threads:	3

@@ -21,6 +21,12 @@ type ProcStat struct {
 	StartTime  uint64 // ticks after boot when the process started
 }
 
+// ProcStatus is the subset of /proc/[pid]/status the monitor needs.
+type ProcStatus struct {
+	UID     int    // real UID (first field of the Uid line)
+	VmRSSKB uint64 // resident memory in kB; 0 for kernel threads
+}
+
 // Positions inside the fields that follow the closing ')' of comm. The field
 // numbers of proc(5) minus 3, because field 3 (state) is the first one here.
 const (
@@ -107,4 +113,50 @@ func (p *fieldParser) fail(err error) {
 	if p.err == nil {
 		p.err = err
 	}
+}
+
+// Status parses /proc/[pid]/status.
+func (f FS) Status(pid int) (ProcStatus, error) {
+	data, err := f.readPidFile(pid, "status")
+	if err != nil {
+		return ProcStatus{}, err
+	}
+	st, err := parseStatus(data)
+	if err != nil {
+		return ProcStatus{}, fmt.Errorf("procfs: pid %d: %w", pid, err)
+	}
+	return st, nil
+}
+
+// parseStatus reads the "Key:\tvalue" lines. Uid is "real effective saved fs";
+// VmRSS is absent for kernel threads, which is not an error (it stays 0).
+func parseStatus(data []byte) (ProcStatus, error) {
+	var st ProcStatus
+	var p fieldParser
+	haveUID := false
+
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(value)
+		if len(fields) == 0 {
+			continue
+		}
+		switch key {
+		case "Uid":
+			st.UID = p.int(fields[0])
+			haveUID = true
+		case "VmRSS":
+			st.VmRSSKB = p.uint(fields[0])
+		}
+	}
+	if p.err != nil {
+		return ProcStatus{}, fmt.Errorf("malformed status: %w", p.err)
+	}
+	if !haveUID {
+		return ProcStatus{}, fmt.Errorf("malformed status: no Uid line")
+	}
+	return st, nil
 }
