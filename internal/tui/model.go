@@ -25,6 +25,7 @@ const (
 	modeNormal   mode = iota
 	modeFilter        // typing the name filter
 	modeInterval      // typing a refresh interval in seconds
+	modeConfirm       // asking y/n before sending a signal
 )
 
 // view is the screen being shown.
@@ -74,6 +75,7 @@ type Model struct {
 	input   lineInput // what is being typed in modeFilter and modeInterval
 	notice  notice    // a one-off message, gone on the next key
 	tree    bool      // the table shows parents and children instead of a flat list
+	pending pending   // the action waiting for its answer in modeConfirm
 
 	rows    []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
 	prefix  []string          // tree connectors of each row; nil in the flat table

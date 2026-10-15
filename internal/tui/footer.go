@@ -16,6 +16,7 @@ var normalHints = []hint{
 	{"q", "quit"},
 	{"↑/↓", "move"},
 	{"enter", "detail"},
+	{"x", "terminate"},
 	{"t", "tree"},
 	{"c", "cpu"},
 	{"m", "mem"},
@@ -32,6 +33,7 @@ var detailHints = []hint{
 	{"q", "quit"},
 	{"esc", "back"},
 	{"↑/↓", "threads"},
+	{"x", "terminate"},
 	{"+/-", "interval"},
 	{"i", "set interval"},
 	{"pgup/pgdn", "page"},
@@ -53,6 +55,8 @@ func (m *Model) footer(w int) string {
 	switch {
 	case m.typing():
 		return m.promptLine(w)
+	case m.mode == modeConfirm:
+		return m.confirmLine(w)
 	default:
 		return m.helpLine(w)
 	}

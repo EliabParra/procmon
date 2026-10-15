@@ -19,6 +19,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeFilter, modeInterval:
 		return m.inputKey(msg)
+	case modeConfirm:
+		return m.confirmKey(msg)
 	default:
 		return m.normalKey(msg)
 	}
@@ -36,6 +38,8 @@ func (m *Model) normalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.stepInterval(+1)
 	case "-":
 		return m, m.stepInterval(-1)
+	case "x":
+		m.startAction(msg.String())
 	default:
 		if m.view == viewDetail {
 			return m.detailKey(msg)
