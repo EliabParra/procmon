@@ -24,3 +24,9 @@ type Process struct {
 	Comm       string // executable name from /proc/[pid]/stat
 	StartTime  uint64 // clock ticks after boot; with PID it identifies one process
 }
+
+// Snapshot is the state of the machine at one Refresh.
+type Snapshot struct {
+	Processes []Process // ascending PID; use Sort, Filter and BuildTree to present them
+	TakenAt   time.Time
+}
