@@ -2,7 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // humanKB writes a size given in KiB with the unit that keeps it short:
@@ -40,4 +43,24 @@ func formatUptime(d time.Duration) string {
 		return fmt.Sprintf("%dd %d:%02d", int(d.Hours())/24, int(d.Hours())%24, int(d.Minutes())%60)
 	}
 	return fmt.Sprintf("%d:%02d:%02d", int(d.Hours()), int(d.Minutes())%60, int(d.Seconds())%60)
+}
+
+// clean makes text from /proc safe to draw. Any process may put anything in
+// its name or arguments, so control characters (C0, DEL and C1: an ESC would
+// start a terminal sequence, a newline would add a row, a tab would shift the
+// columns) and invalid UTF-8 are replaced by a visible '?'. Call it before
+// measuring or truncating, never after.
+func clean(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if (r == utf8.RuneError && size == 1) || unicode.IsControl(r) {
+			b.WriteByte('?')
+		} else {
+			b.WriteRune(r)
+		}
+		i += size
+	}
+	return b.String()
 }

@@ -3,6 +3,8 @@ package tui
 import (
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 func TestHumanKB(t *testing.T) {
@@ -65,6 +67,35 @@ func TestFormatUptime(t *testing.T) {
 		t.Run(tt.want, func(t *testing.T) {
 			if got := formatUptime(tt.d); got != tt.want {
 				t.Errorf("formatUptime(%v) = %q, want %q", tt.d, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClean(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain text is untouched", "/usr/bin/foo --bar=1 日本語", "/usr/bin/foo --bar=1 日本語"},
+		{"tab, newline and carriage return", "a\tb\nc\rd", "a?b?c?d"},
+		{"escape sequences lose their ESC", "\x1b[31mred\x1b[2J", "?[31mred?[2J"},
+		{"DEL", "a\x7fb", "a?b"},
+		{"C1 controls", "a\u0085b\u009bc", "a?b?c"},
+		{"NUL", "a\x00b", "a?b"},
+		{"invalid UTF-8", "a\xffb\xc3", "a?b?"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := clean(tt.in)
+			if got != tt.want {
+				t.Errorf("clean(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+			for _, r := range got {
+				if unicode.IsControl(r) || r == utf8.RuneError {
+					t.Errorf("clean(%q) left %U in %q", tt.in, r, got)
+				}
 			}
 		})
 	}
