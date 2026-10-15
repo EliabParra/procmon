@@ -9,10 +9,10 @@ Restricciones del enunciado del proyecto, y cómo las cumple el código:
 
 | Restricción | Cómo |
 |---|---|
-| Los datos de los procesos salen de `/proc` | `internal/procfs` analiza `/proc/[pid]/{stat,status,cmdline}`, `/proc/[pid]/task/*/stat` y `/proc/{stat,meminfo,loadavg,uptime,self/auxv}`. Una lectura adicional: `/etc/passwd`, solo para convertir un UID en un nombre de usuario (sección 5). |
+| Los datos de los procesos salen de `/proc` | `internal/procfs` analiza `/proc/[pid]/{stat,status,cmdline}`, `/proc/[pid]/task/*/stat` y `/proc/{stat,meminfo,loadavg,uptime,self/auxv}`. Una lectura adicional: `/etc/passwd`, solo para convertir un UID en un nombre de usuario (ver «De dónde sale cada dato»). |
 | Ninguna biblioteca que liste procesos o calcule el % de CPU | `go.mod` solo requiere bibliotecas de interfaz: Bubble Tea, Lip Gloss y `x/ansi` (ancho y truncado de texto). Ni gopsutil ni un paquete procfs. |
 | Sin programas externos | No hay `os/exec` en el código que no es de prueba. Las señales usan `kill(2)`, la prioridad usa `getpriority(2)` y `setpriority(2)`, todo mediante el paquete `syscall`. |
-| El %CPU lo calcula el programa | `internal/monitor/cpu.go`, a partir de dos muestras de los contadores del kernel (sección 6). |
+| El %CPU lo calcula el programa | `internal/monitor/cpu.go`, a partir de dos muestras de los contadores del kernel (ver «Cómo se calcula el %CPU»). |
 
 La verificación de la tercera fila no imprime nada:
 
@@ -352,7 +352,7 @@ una terminal real. Esos se ejercitaron a mano en un multiplexor de terminal.
 - **`Verify` reduce la carrera del PID, no la cierra** (véase la sección anterior). Un pidfd sí la cerraría.
 - **Señalar un zombi tiene éxito y no hace nada.** `kill(2)` devuelve éxito sobre un zombi, que permanece en estado
   Z hasta que su padre lee su estado de salida. La línea de estado igualmente dirá que se envió la señal.
-- **El %CPU es grueso con intervalos cortos** (sección 6): los contadores avanzan en unidades de 10 ms.
+- **El %CPU es grueso con intervalos cortos** (ver «Cómo se calcula el %CPU»): los contadores avanzan en unidades de 10 ms.
 - **La prioridad actúa sobre un hilo.** `n` cambia el nice del hilo principal, no el de los demás hilos del
   proceso.
 - **Permisos.** El proceso de otro usuario puede ocultar `status`, `cmdline` o sus hilos. La fila conserva entonces
