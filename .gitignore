@@ -1,0 +1,5 @@
+/procmon
+/bin/
+*.test
+*.out
+.codegraph/
