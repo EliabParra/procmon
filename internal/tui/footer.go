@@ -115,6 +115,10 @@ func (m *Model) statusText() string {
 	return ""
 }
 
+// typedRoom is the width the typed text always keeps: the space after the
+// label, the cursor and four characters, enough for "-20".
+const typedRoom = 6
+
 // promptLabel is what the input line asks for on a line w columns wide. The
 // nice question is long, so on a narrow line it shrinks to "nice 4321 (name)
 // [0]:" (the number in brackets is the current nice) and, if that is still too
@@ -125,7 +129,11 @@ func (m *Model) promptLabel(w int) string {
 		return "interval (seconds):"
 	case modeNice:
 		who, cur := m.pending.who, m.pending.nice
-		return fmt.Sprintf("nice of %s is %d, new value (%d..%d):", who, cur, minNice, maxNice)
+		label := fmt.Sprintf("nice of %s is %d, new value (%d..%d):", who, cur, minNice, maxNice)
+		if ansi.StringWidth(label)+typedRoom > w {
+			label = fmt.Sprintf("nice %s [%d]:", who, cur)
+		}
+		return ansi.Truncate(label, max(0, w-typedRoom), "…")
 	}
 	return "/"
 }

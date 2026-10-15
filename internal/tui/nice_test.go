@@ -290,6 +290,72 @@ func TestNiceWithNothingSelected(t *testing.T) {
 	}
 }
 
+func TestNicePromptKeepsTheTypedValueVisibleOnNarrowTerminals(t *testing.T) {
+	for _, w := range []int{40, 41, 45, 49, 50, 55, 60, 80, 120} {
+		t.Run(fmt.Sprintf("%d columns", w), func(t *testing.T) {
+			m, _, ctl := actionSetup()
+			ctl.nice = 3
+			m.Update(windowSize(w, 20))
+			press(m, "n")
+			typeText(m, "-7")
+
+			line := footerText(m)
+			for _, want := range []string{"200 (firefox)", ": -7"} {
+				if !strings.Contains(line, want) {
+					t.Errorf("the prompt is missing %q: %q", want, line)
+				}
+			}
+			if cur := m.View().Cursor; cur == nil || cur.X >= w {
+				t.Errorf("the cursor must be on the line: %+v", cur)
+			}
+			assertFits(t, m, w, 20)
+		})
+	}
+}
+
+func TestNicePromptKeepsRoomForTheValueWhateverTheName(t *testing.T) {
+	mon, ctl := &fakeMonitor{}, &fakeControl{}
+	p := proc(1234567, "firefox", 5)
+	p.Comm, p.StartTime = strings.Repeat("a", 30), 1 // the command is the name when comm is empty, and can be long
+	m := loadedOpts(mon, ctl, 40, 20, []monitor.Process{p})
+	press(m, "n")
+	typeText(m, "-7")
+
+	if line := footerText(m); !strings.Contains(line, "1234567") || !strings.HasSuffix(strings.TrimRight(line, " "), " -7") {
+		t.Errorf("the PID and the typed value must both show: %q", line)
+	}
+}
+
+func TestNicePromptKeepsTheWholeQuestionWhenThereIsRoom(t *testing.T) {
+	m, _, ctl := actionSetup()
+	ctl.nice = 3
+	m.Update(windowSize(120, 20))
+	press(m, "n")
+	if line := footerText(m); !strings.Contains(line, "nice of 200 (firefox) is 3, new value (-20..19):") {
+		t.Errorf("a wide terminal keeps the full question: %q", line)
+	}
+}
+
+func TestNicePromptFitsEverySize(t *testing.T) {
+	for _, size := range [][2]int{{140, 35}, {80, 24}, {40, 12}, {30, 8}, {20, 5}, {10, 3}, {5, 2}, {1, 1}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			mon, ctl := &fakeMonitor{}, &fakeControl{}
+			p := proc(200, "firefox", 5)
+			p.Comm, p.StartTime = "evil\x1b[2J-and-a-very-long-name", 777
+			m := loadedOpts(mon, ctl, size[0], size[1], []monitor.Process{p})
+			press(m, "n")
+			typeText(m, strings.Repeat("9日", 80))
+			assertFits(t, m, size[0], size[1])
+			if strings.ContainsRune(m.View().Content, '\x1b') && strings.Contains(m.View().Content, "evil\x1b") {
+				t.Error("an escape sequence of the process name reached the screen")
+			}
+			if cur := m.View().Cursor; cur == nil || cur.X >= size[0] || cur.Y != size[1]-1 {
+				t.Errorf("cursor %+v is outside the last line", cur)
+			}
+		})
+	}
+}
+
 func TestHelpLineListsTheNiceKey(t *testing.T) {
 	m, _, _ := actionSetup()
 	m.Update(windowSize(200, 35))
