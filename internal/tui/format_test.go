@@ -5,6 +5,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestHumanKB(t *testing.T) {
@@ -96,6 +98,35 @@ func TestClean(t *testing.T) {
 				if unicode.IsControl(r) || r == utf8.RuneError {
 					t.Errorf("clean(%q) left %U in %q", tt.in, r, got)
 				}
+			}
+		})
+	}
+}
+
+func TestCell(t *testing.T) {
+	tests := []struct {
+		name  string
+		s     string
+		w     int
+		right bool
+		want  string
+	}{
+		{"pads on the right", "ab", 5, false, "ab   "},
+		{"pads on the left when right-aligned", "ab", 5, true, "   ab"},
+		{"fits exactly", "abcde", 5, false, "abcde"},
+		{"truncates with an ellipsis", "abcdefgh", 5, false, "abcd…"},
+		{"truncates right-aligned text too", "abcdefgh", 5, true, "abcd…"},
+		{"wide runes count two columns", "日本語", 5, false, "日本…"},
+		{"zero width", "abc", 0, false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cell(tt.s, tt.w, tt.right)
+			if got != tt.want {
+				t.Errorf("cell(%q, %d, %v) = %q, want %q", tt.s, tt.w, tt.right, got, tt.want)
+			}
+			if w := ansi.StringWidth(got); w != tt.w {
+				t.Errorf("width = %d, want %d", w, tt.w)
 			}
 		})
 	}

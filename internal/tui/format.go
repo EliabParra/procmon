@@ -6,6 +6,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // humanKB writes a size given in KiB with the unit that keeps it short:
@@ -63,4 +65,20 @@ func clean(s string) string {
 		i += size
 	}
 	return b.String()
+}
+
+// cell makes s exactly w columns wide: longer text is cut with an ellipsis,
+// shorter text is padded on the left or on the right. s must not hold styling.
+func cell(s string, w int, right bool) string {
+	if w <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(s) > w {
+		s = ansi.Truncate(s, w, "…")
+	}
+	pad := strings.Repeat(" ", max(0, w-ansi.StringWidth(s)))
+	if right {
+		return pad + s
+	}
+	return s + pad
 }
