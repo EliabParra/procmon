@@ -194,7 +194,7 @@ func (m *Model) identityLines(p monitor.Process) []string {
 		m.kv("nice", strconv.Itoa(p.Nice)),
 		m.kv("PPID", strconv.Itoa(p.PPID)),
 		m.kv("threads", strconv.Itoa(p.Threads)),
-		m.kv("cpu", fmt.Sprintf("%.1f", p.CPUPercent)+"%"),
+		m.kv("cpu", cpuText(m.cpuValue(p.CPUPercent))+"%"),
 	}, gap)
 	return []string{first, m.styles.dim.Render("cmd") + " " + m.styles.text.Render(clean(p.Command))}
 }
@@ -234,14 +234,14 @@ func stateName(state byte) string {
 // chartLines are the title with the figures of the series and the sparkline
 // of the CPU history, as wide as the box.
 func (m *Model) chartLines(w int) []string {
-	hist := m.detail.data.history
+	hist := m.cpuSeries(m.detail.data.history)
 	title := m.styles.dim.Render("CPU history")
 	if len(hist) == 0 {
 		return []string{title, m.styles.dim.Render("no samples yet")}
 	}
 	lo, avg, hi := seriesStats(hist)
-	top := sparkScale(hist, 100)
-	pct := func(v float64) string { return fmt.Sprintf("%.1f%%", v) }
+	top := sparkScale(hist, m.cpuValue(100)) // the whole machine in the active mode
+	pct := func(v float64) string { return cpuText(v) + "%" }
 	title += gap + strings.Join([]string{
 		m.kv("min", pct(lo)),
 		m.kv("avg", pct(avg)),

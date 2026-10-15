@@ -95,7 +95,7 @@ func (m *Model) cellText(p monitor.Process, id colID) string {
 	case colState:
 		return clean(string(rune(p.State)))
 	case colCPU:
-		return fmt.Sprintf("%.1f", p.CPUPercent)
+		return cpuText(m.cpuValue(p.CPUPercent))
 	case colMem:
 		return fmt.Sprintf("%.1f", p.MemPercent)
 	case colRes:

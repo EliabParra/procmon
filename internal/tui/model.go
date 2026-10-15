@@ -79,6 +79,7 @@ type Model struct {
 	tree    bool      // the table shows parents and children instead of a flat list
 	pending pending   // the action waiting for its answer in modeConfirm
 	selfPID int       // the monitor's own PID, which no action may touch
+	cpu     cpuMode   // how %CPU is shown
 
 	rows    []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
 	prefix  []string          // tree connectors of each row; nil in the flat table

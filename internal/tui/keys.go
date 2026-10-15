@@ -42,6 +42,8 @@ func (m *Model) normalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.startAction(msg.String())
 	case "n":
 		m.startNice()
+	case "I":
+		m.toggleCPUMode()
 	default:
 		if m.view == viewDetail {
 			return m.detailKey(msg)

@@ -276,6 +276,23 @@ func TestTableKeysDoNothingInTheDetail(t *testing.T) {
 	}
 }
 
+func TestDetailHelpLine(t *testing.T) {
+	m, _ := editorSetup(200, 35)
+	openDetail(m)
+	out := screen(m)
+	help := out[len(out)-1]
+	for _, want := range []string{"q quit", "esc back", "↑/↓ threads", "I cpu mode"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("the detail help line is missing %q: %q", want, help)
+		}
+	}
+	for _, notHere := range []string{"c cpu", "mem", "filter", "tree"} { // I cpu mode works here; the sort key does not
+		if strings.Contains(help, notHere) {
+			t.Errorf("the detail help line advertises %q, which does nothing here: %q", notHere, help)
+		}
+	}
+}
+
 func TestProcessThatExitsWhileTheDetailIsOpen(t *testing.T) {
 	m, _ := editorSetup(120, 35)
 	openDetail(m)

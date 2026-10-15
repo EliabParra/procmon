@@ -22,6 +22,7 @@ func (m *Model) headerBox(w int) []string {
 	left := m.styles.title.Render("procmon") + " " +
 		m.styles.pill("refresh", formatInterval(m.interval)) + " " +
 		m.styles.pill("sort", sortName(m.sortKey)) + " " +
+		m.styles.pill("cpu", m.cpu.name()) + " " +
 		m.styles.pill("view", m.viewName())
 	if m.filter != "" {
 		left += " " + m.styles.pill("filter", fmt.Sprintf("%s (%d)", clean(m.filter), m.matches))
