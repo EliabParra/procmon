@@ -26,6 +26,15 @@ type SystemStat struct {
 	Cores []CPUTimes // one entry per "cpuN" line, in file order
 }
 
+// MemInfo holds the /proc/meminfo values the monitor uses, all in kB.
+type MemInfo struct {
+	MemTotalKB     uint64
+	MemFreeKB      uint64
+	MemAvailableKB uint64 // 0 on kernels older than 3.14, which do not report it
+	SwapTotalKB    uint64
+	SwapFreeKB     uint64
+}
+
 // readSystemFile reads Root/<name>. These files always exist on a live
 // system, so errors are NOT classified as "process gone".
 func (f FS) readSystemFile(name string) ([]byte, error) {
@@ -96,4 +105,51 @@ func parseCPUTimes(fields []string) (CPUTimes, error) {
 		*dst = v
 	}
 	return c, nil
+}
+
+// MemInfo parses /proc/meminfo ("Key:   value kB" lines).
+func (f FS) MemInfo() (MemInfo, error) {
+	data, err := f.readSystemFile("meminfo")
+	if err != nil {
+		return MemInfo{}, err
+	}
+	mi, err := parseMemInfo(data)
+	if err != nil {
+		return MemInfo{}, fmt.Errorf("procfs: /proc/meminfo: %w", err)
+	}
+	return mi, nil
+}
+
+func parseMemInfo(data []byte) (MemInfo, error) {
+	var mi MemInfo
+	var p fieldParser
+	haveTotal := false
+
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		fields := strings.Fields(value)
+		if !ok || len(fields) == 0 {
+			continue
+		}
+		switch key {
+		case "MemTotal":
+			mi.MemTotalKB = p.uint(fields[0])
+			haveTotal = true
+		case "MemFree":
+			mi.MemFreeKB = p.uint(fields[0])
+		case "MemAvailable":
+			mi.MemAvailableKB = p.uint(fields[0])
+		case "SwapTotal":
+			mi.SwapTotalKB = p.uint(fields[0])
+		case "SwapFree":
+			mi.SwapFreeKB = p.uint(fields[0])
+		}
+	}
+	if p.err != nil {
+		return MemInfo{}, p.err
+	}
+	if !haveTotal {
+		return MemInfo{}, fmt.Errorf("no MemTotal line")
+	}
+	return mi, nil
 }

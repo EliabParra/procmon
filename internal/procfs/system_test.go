@@ -102,3 +102,43 @@ func TestSystemStat(t *testing.T) {
 		}
 	})
 }
+
+func TestMemInfo(t *testing.T) {
+	t.Run("fixture", func(t *testing.T) {
+		got, err := fixtureFS().MemInfo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := MemInfo{MemTotalKB: 15544196, MemFreeKB: 2503180, MemAvailableKB: 5687016,
+			SwapTotalKB: 32320504, SwapFreeKB: 26064084}
+		if got != want {
+			t.Fatalf("MemInfo() = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("kernel without MemAvailable leaves it at zero", func(t *testing.T) {
+		got, err := tempFS(t, map[string]string{"meminfo": "MemTotal: 100 kB\nMemFree: 40 kB\n"}).MemInfo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.MemTotalKB != 100 || got.MemFreeKB != 40 || got.MemAvailableKB != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	errCases := []struct {
+		name    string
+		meminfo string
+	}{
+		{name: "no MemTotal", meminfo: "MemFree: 40 kB\n"},
+		{name: "non numeric value", meminfo: "MemTotal: lots kB\n"},
+		{name: "empty file", meminfo: ""},
+	}
+	for _, tt := range errCases {
+		t.Run("error: "+tt.name, func(t *testing.T) {
+			if _, err := tempFS(t, map[string]string{"meminfo": tt.meminfo}).MemInfo(); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
