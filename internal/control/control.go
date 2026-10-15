@@ -19,7 +19,8 @@ var (
 // The three system calls, behind variables so tests can check exactly what
 // would reach the kernel (and simulate EPERM) without touching a real process.
 var (
-	sysKill = syscall.Kill
+	sysKill        = syscall.Kill
+	sysGetpriority = syscall.Getpriority
 )
 
 // Terminate asks the process to exit cleanly: kill(2) with SIGTERM.
@@ -40,6 +41,22 @@ func signal(pid int, sig syscall.Signal) error {
 		return err
 	}
 	return sysKill(pid, sig)
+}
+
+// Priority returns the nice value (-20..19) of pid through getpriority(2).
+// On Linux the priority belongs to a single thread, so for a multi-threaded
+// process this is the nice of its main thread, the one /proc/[pid]/stat shows.
+func Priority(pid int) (int, error) {
+	if err := checkPID(pid); err != nil {
+		return 0, err
+	}
+	raw, err := sysGetpriority(syscall.PRIO_PROCESS, pid)
+	if err != nil {
+		return 0, err
+	}
+	// The raw Linux syscall returns 20 - nice (1..40) so that -1 never looks
+	// like an error. glibc undoes this; Go's syscall package does not.
+	return 20 - raw, nil
 }
 
 func checkPID(pid int) error {

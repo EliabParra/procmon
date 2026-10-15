@@ -14,26 +14,32 @@ import (
 // ---- seams: fake the three system calls so nothing real is touched ----
 
 type kernelCalls struct {
-	kills [][2]int // {pid, signal}
-	err   error    // error every fake call returns
+	kills    [][2]int // {pid, signal}
+	getCalls []int    // pid
+	getRaw   int      // value the fake getpriority returns
+	err      error    // error every fake call returns
 }
 
 // fakeKernel replaces sysKill/sysGetpriority/sysSetpriority for one test.
 func fakeKernel(t *testing.T) *kernelCalls {
 	t.Helper()
 	k := &kernelCalls{}
-	origKill := sysKill
-	t.Cleanup(func() { sysKill = origKill })
+	origKill, origGet := sysKill, sysGetpriority
+	t.Cleanup(func() { sysKill, sysGetpriority = origKill, origGet })
 
 	sysKill = func(pid int, sig syscall.Signal) error {
 		k.kills = append(k.kills, [2]int{pid, int(sig)})
 		return k.err
 	}
+	sysGetpriority = func(which, who int) (int, error) {
+		k.getCalls = append(k.getCalls, who)
+		return k.getRaw, k.err
+	}
 	return k
 }
 
 func (k *kernelCalls) touched() bool {
-	return len(k.kills) > 0
+	return len(k.kills) > 0 || len(k.getCalls) > 0
 }
 
 // ---- real child process ----
@@ -122,6 +128,7 @@ func TestInvalidPIDNeverReachesTheKernel(t *testing.T) {
 		"Kill":      Kill,
 		"Suspend":   Suspend,
 		"Resume":    Resume,
+		"Priority":  func(pid int) error { _, err := Priority(pid); return err },
 	}
 	for name, act := range actions {
 		for _, pid := range []int{0, -1, -4242} {
@@ -162,6 +169,35 @@ func TestSignalsUseTheRightSignal(t *testing.T) {
 	}
 }
 
+func TestPriorityConvertsTheRawSyscallValue(t *testing.T) {
+	// The Linux getpriority syscall returns 20 - nice (1..40) so that -1 stays
+	// free as an error marker; glibc converts it back, Go's syscall does not.
+	tests := []struct {
+		raw  int
+		want int
+	}{
+		{raw: 20, want: 0},
+		{raw: 10, want: 10},
+		{raw: 30, want: -10},
+		{raw: 1, want: 19},
+		{raw: 40, want: -20},
+	}
+	for _, tt := range tests {
+		k := fakeKernel(t)
+		k.getRaw = tt.raw
+		got, err := Priority(77)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tt.want {
+			t.Errorf("raw %d: Priority = %d, want %d", tt.raw, got, tt.want)
+		}
+		if len(k.getCalls) != 1 || k.getCalls[0] != 77 {
+			t.Errorf("getpriority calls = %v, want [77]", k.getCalls)
+		}
+	}
+}
+
 // ---- real syscalls against a child process spawned by the test ----
 
 func TestTerminateKillsTheChildWithSIGTERM(t *testing.T) {
@@ -197,4 +233,19 @@ func TestSuspendAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitState(t, c.pid, func(s byte) bool { return s != 'T' })
+}
+
+func TestPriorityMatchesWhatProcReports(t *testing.T) {
+	c := spawnSleep(t)
+	got, err := Priority(c.pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := procfs.New().Stat(c.pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != st.Nice {
+		t.Fatalf("Priority = %d but /proc/%d/stat says nice %d", got, c.pid, st.Nice)
+	}
 }
