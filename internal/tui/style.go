@@ -24,6 +24,12 @@ const (
 	capRight = "\ue0b4"
 )
 
+// WithPlain draws the pills with square ends, for terminals whose font has
+// no Nerd Font glyphs.
+func WithPlain() Option {
+	return func(m *Model) { m.styles = newStyles(true) }
+}
+
 type styles struct {
 	border   lipgloss.Style // box lines
 	dim      lipgloss.Style // labels and hints

@@ -217,3 +217,5 @@ func screen(m *Model) []string {
 }
 
 func screenText(m *Model) string { return strings.Join(screen(m), "\n") }
+
+func windowSize(w, h int) tea.WindowSizeMsg { return tea.WindowSizeMsg{Width: w, Height: h} }
