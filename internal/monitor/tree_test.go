@@ -152,3 +152,58 @@ func TestBuildTreeEmpty(t *testing.T) {
 		t.Fatalf("rows = %+v, want none", rows)
 	}
 }
+
+func TestWithAncestors(t *testing.T) {
+	all := forest()
+	byCommand := func(names ...string) []Process {
+		var out []Process
+		for _, p := range all {
+			if slices.Contains(names, p.Command) {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+
+	tests := []struct {
+		name   string
+		subset []Process
+		want   []int // PIDs, in the order of the full list
+	}{
+		{"a deep match brings every ancestor", byCommand("e"), []int{1, 101, 300}},
+		{"two matches share their ancestors", byCommand("c", "d"), []int{1, 100, 200, 201}},
+		{"a root has no ancestors", byCommand("kthreadd"), []int{2}},
+		{"an orphan keeps only itself", byCommand("orphan"), []int{500}},
+		{"a match above another adds nothing twice", byCommand("a", "c"), []int{1, 100, 200}},
+		{"nothing matches", nil, []int{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pids(WithAncestors(all, tt.subset))
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("pids = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWithAncestorsSurvivesAParentCycle(t *testing.T) {
+	cycle := []Process{
+		{PID: 1, PPID: 2, Command: "x"},
+		{PID: 2, PPID: 3, Command: "y"},
+		{PID: 3, PPID: 1, Command: "z"},
+	}
+	got := pids(WithAncestors(cycle, cycle[:1]))
+	if !slices.Equal(got, []int{1, 2, 3}) {
+		t.Errorf("pids = %v, want [1 2 3]", got)
+	}
+}
+
+func TestWithAncestorsDoesNotTouchItsInputs(t *testing.T) {
+	all := forest()
+	subset := []Process{all[7]}
+	WithAncestors(all, subset)
+	if len(subset) != 1 || len(all) != 9 {
+		t.Error("inputs must not change")
+	}
+}

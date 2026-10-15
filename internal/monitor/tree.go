@@ -76,3 +76,35 @@ func BuildTree(procs []Process) []TreeRow {
 	}
 	return rows
 }
+
+// WithAncestors returns the processes of subset together with every ancestor
+// of them that is listed in all, in the order of all. A filtered tree uses it
+// to keep the hierarchy readable: a match is shown under the processes that
+// started it. A parent cycle ends the walk instead of looping.
+func WithAncestors(all, subset []Process) []Process {
+	parent := make(map[int]int, len(all)) // pid -> ppid
+	for _, p := range all {
+		parent[p.PID] = p.PPID
+	}
+	keep := make(map[int]bool, len(subset))
+	for _, p := range subset {
+		// Stop at a process already kept: its own ancestors were kept when it
+		// was, and that is also what ends a cycle.
+		for pid := p.PID; !keep[pid]; {
+			keep[pid] = true
+			ppid, listed := parent[pid]
+			if !listed {
+				break
+			}
+			pid = ppid
+		}
+	}
+
+	out := make([]Process, 0, len(keep))
+	for _, p := range all {
+		if keep[p.PID] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
