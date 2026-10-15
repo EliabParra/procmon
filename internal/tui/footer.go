@@ -19,6 +19,7 @@ var normalHints = []hint{
 	{"m", "mem"},
 	{"p", "pid"},
 	{"/", "filter"},
+	{"+/-", "interval"},
 	{"pgup/pgdn", "page"},
 	{"home/end", "jump"},
 }
@@ -57,7 +58,7 @@ func (m *Model) helpLine(w int) string {
 	}
 	if msg := m.statusText(); msg != "" {
 		style := m.styles.dim
-		if m.refreshErr != nil {
+		if m.refreshErr != nil || m.notice.isErr {
 			style = m.styles.err
 		}
 		if ansi.StringWidth(msg) > w {
@@ -76,6 +77,8 @@ func (m *Model) helpLine(w int) string {
 // the reason the last refresh failed.
 func (m *Model) statusText() string {
 	switch {
+	case m.notice.text != "":
+		return clean(m.notice.text)
 	case m.refreshErr != nil:
 		return "refresh failed: " + clean(m.refreshErr.Error())
 	}

@@ -14,6 +14,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
+	m.notice = notice{} // a message lasts until the next key
 	switch m.mode {
 	case modeFilter:
 		return m.inputKey(msg)
@@ -28,6 +29,10 @@ func (m *Model) normalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
+	case "+":
+		return m, m.stepInterval(+1)
+	case "-":
+		return m, m.stepInterval(-1)
 	default:
 		return m.tableKey(msg)
 	}
@@ -70,6 +75,20 @@ func (m *Model) setSort(k monitor.SortKey) {
 func (m *Model) startInput(to mode, text string) {
 	m.mode = to
 	m.input.Set(text)
+}
+
+// stepInterval moves the refresh interval to the next or previous step.
+func (m *Model) stepInterval(dir int) tea.Cmd {
+	next, ok := nextInterval(m.interval, dir)
+	if !ok {
+		which := "longest"
+		if dir < 0 {
+			which = "shortest"
+		}
+		m.notice = notice{text: "already at the " + which + " step"}
+		return nil
+	}
+	return m.setInterval(next)
 }
 
 // inputKey edits the line in modeFilter and modeInterval.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -273,6 +274,97 @@ func TestInputLineShowsThePromptAndPlacesTheCursor(t *testing.T) {
 	press(m, "esc")
 	if m.View().Cursor != nil {
 		t.Error("the cursor must go away with the input")
+	}
+}
+
+func TestIntervalSteps(t *testing.T) {
+	m := loaded(120, 30, proc(1, "bash", 1))
+	steps := []struct {
+		key  string
+		want time.Duration
+	}{
+		{"+", 2 * time.Second}, {"+", 3 * time.Second}, {"+", 5 * time.Second}, {"+", 10 * time.Second},
+		{"+", 10 * time.Second}, // already the longest step
+		{"-", 5 * time.Second}, {"-", 3 * time.Second}, {"-", 2 * time.Second}, {"-", time.Second},
+		{"-", 500 * time.Millisecond},
+		{"-", 500 * time.Millisecond}, // already the shortest step
+	}
+	for _, s := range steps {
+		press(m, s.key)
+		if m.interval != s.want {
+			t.Fatalf("after %q the interval is %v, want %v", s.key, m.interval, s.want)
+		}
+	}
+	if !strings.Contains(screenText(m), "refresh 0.5s") {
+		t.Error("the header must show the interval")
+	}
+}
+
+func TestIntervalStepsFromACustomValue(t *testing.T) {
+	m := loaded(120, 30, proc(1, "bash", 1))
+	m.interval = 2500 * time.Millisecond
+	press(m, "+")
+	if m.interval != 3*time.Second {
+		t.Errorf("+ from 2.5s = %v, want 3s", m.interval)
+	}
+	m.interval = 2500 * time.Millisecond
+	press(m, "-")
+	if m.interval != 2*time.Second {
+		t.Errorf("- from 2.5s = %v, want 2s", m.interval)
+	}
+	m.interval = 30 * time.Second
+	press(m, "-")
+	if m.interval != 10*time.Second {
+		t.Errorf("- from 30s = %v, want 10s", m.interval)
+	}
+}
+
+func TestChangingTheIntervalRestartsTheTickChain(t *testing.T) {
+	mon := &fakeMonitor{snap: snapshotOf(proc(1, "bash", 1))}
+	m := New(mon, &fakeControl{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	old := m.gen
+
+	cmd := press(m, "+")
+
+	if m.gen == old {
+		t.Error("a new interval needs a new tick generation")
+	}
+	if cmd == nil {
+		t.Error("a new interval must schedule its own tick")
+	}
+	if _, next := m.Update(tickMsg{gen: old}); next != nil {
+		t.Error("the tick of the old interval must be ignored")
+	}
+	if mon.count() != 0 {
+		t.Error("an old tick must not refresh")
+	}
+	if _, next := m.Update(tickMsg{gen: m.gen}); next == nil {
+		t.Error("the new tick must keep the loop going")
+	}
+}
+
+func TestNewHonoursTheIntervalOption(t *testing.T) {
+	tests := []struct {
+		name string
+		opt  time.Duration
+		want time.Duration
+	}{
+		{"as given", 2 * time.Second, 2 * time.Second},
+		{"too fast is raised", time.Millisecond, MinInterval},
+		{"too slow is lowered", time.Hour, MaxInterval},
+		{"zero is raised", 0, MinInterval},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New(&fakeMonitor{}, &fakeControl{}, WithInterval(tt.opt))
+			if m.interval != tt.want {
+				t.Errorf("interval = %v, want %v", m.interval, tt.want)
+			}
+		})
+	}
+	if New(&fakeMonitor{}, &fakeControl{}).interval != DefaultInterval {
+		t.Error("the default interval is 1s")
 	}
 }
 

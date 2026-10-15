@@ -59,6 +59,7 @@ type Model struct {
 	sortKey monitor.SortKey
 	filter  string    // only processes whose name contains it are listed
 	input   lineInput // what is being typed in modeFilter and modeInterval
+	notice  notice    // a one-off message, gone on the next key
 
 	rows    []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
 	matches int               // processes that match the filter (rows also holds ancestors)
@@ -66,6 +67,12 @@ type Model struct {
 	offset  int               // index in rows of the first visible row
 	selPID  int               // the selected process; the cursor follows it once picked
 	picked  bool              // the user chose a row; until then the top row stays selected
+}
+
+// notice is a message for the status line.
+type notice struct {
+	text  string
+	isErr bool
 }
 
 // Option customizes a Model.
