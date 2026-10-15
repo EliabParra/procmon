@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"syscall"
+
+	"github.com/EliabParra/procmon/internal/oserr"
 )
 
 var (
@@ -48,7 +50,8 @@ func signal(pid int, sig syscall.Signal) error {
 	if err := checkPID(pid); err != nil {
 		return err
 	}
-	return sysKill(pid, sig)
+	// ESRCH (no such process) becomes oserr.ErrProcessGone, EPERM becomes oserr.ErrPermission.
+	return oserr.Classify(sysKill(pid, sig))
 }
 
 // Priority returns the nice value (-20..19) of pid through getpriority(2).
@@ -60,7 +63,7 @@ func Priority(pid int) (int, error) {
 	}
 	raw, err := sysGetpriority(syscall.PRIO_PROCESS, pid)
 	if err != nil {
-		return 0, err
+		return 0, oserr.Classify(err)
 	}
 	// The raw Linux syscall returns 20 - nice (1..40) so that -1 never looks
 	// like an error. glibc undoes this; Go's syscall package does not.
@@ -78,7 +81,7 @@ func SetPriority(pid, nice int) error {
 	if nice < minNice || nice > maxNice {
 		return fmt.Errorf("%w: got %d", ErrInvalidPriority, nice)
 	}
-	return sysSetpriority(syscall.PRIO_PROCESS, pid, nice)
+	return oserr.Classify(sysSetpriority(syscall.PRIO_PROCESS, pid, nice))
 }
 
 func checkPID(pid int) error {

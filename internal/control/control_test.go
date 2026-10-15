@@ -3,11 +3,15 @@ package control
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/EliabParra/procmon/internal/oserr"
 	"github.com/EliabParra/procmon/internal/procfs"
 )
 
@@ -175,6 +179,35 @@ func TestSignalsUseTheRightSignal(t *testing.T) {
 	}
 }
 
+func TestSignalErrorsAreClassified(t *testing.T) {
+	tests := []struct {
+		name     string
+		errno    error
+		wantGone bool
+		wantPerm bool
+	}{
+		{name: "ESRCH is process gone", errno: syscall.ESRCH, wantGone: true},
+		{name: "EPERM is permission denied", errno: syscall.EPERM, wantPerm: true},
+		{name: "other errors pass through", errno: syscall.EINVAL},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k := fakeKernel(t)
+			k.err = tt.errno
+			err := Terminate(4321)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if errors.Is(err, oserr.ErrProcessGone) != tt.wantGone || errors.Is(err, oserr.ErrPermission) != tt.wantPerm {
+				t.Fatalf("err = %v, wantGone=%v wantPerm=%v", err, tt.wantGone, tt.wantPerm)
+			}
+			if !errors.Is(err, tt.errno) {
+				t.Fatalf("original errno lost: %v", err)
+			}
+		})
+	}
+}
+
 func TestPriorityConvertsTheRawSyscallValue(t *testing.T) {
 	// The Linux getpriority syscall returns 20 - nice (1..40) so that -1 stays
 	// free as an error marker; glibc converts it back, Go's syscall does not.
@@ -237,6 +270,21 @@ func TestSetPriorityValidatesRange(t *testing.T) {
 	}
 }
 
+func TestPriorityErrorsAreClassified(t *testing.T) {
+	k := fakeKernel(t)
+	k.err = syscall.ESRCH
+	if _, err := Priority(9); !errors.Is(err, oserr.ErrProcessGone) {
+		t.Errorf("Priority: err = %v, want ErrProcessGone", err)
+	}
+	if err := SetPriority(9, 3); !errors.Is(err, oserr.ErrProcessGone) {
+		t.Errorf("SetPriority: err = %v, want ErrProcessGone", err)
+	}
+	k.err = syscall.EACCES
+	if err := SetPriority(9, 3); !errors.Is(err, oserr.ErrPermission) {
+		t.Errorf("SetPriority: err = %v, want ErrPermission", err)
+	}
+}
+
 // ---- real syscalls against a child process spawned by the test ----
 
 func TestTerminateKillsTheChildWithSIGTERM(t *testing.T) {
@@ -272,6 +320,40 @@ func TestSuspendAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitState(t, c.pid, func(s byte) bool { return s != 'T' })
+}
+
+// unusedPID is a PID the kernel can never hand out: above pid_max (and above
+// the 4194304 limit of Linux), so a signal or a priority call on it answers
+// ESRCH whatever is running. A reaped child's PID would not do: the kernel
+// may recycle it, and the test would then signal an unrelated process.
+func unusedPID(t *testing.T) int {
+	t.Helper()
+	const linuxPIDLimit = 4194304
+	limit := linuxPIDLimit
+	if raw, err := os.ReadFile("/proc/sys/kernel/pid_max"); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil {
+			limit = max(limit, n)
+		}
+	}
+	return limit + 1
+}
+
+func TestSignalToAMissingProcessIsProcessGone(t *testing.T) {
+	pid := unusedPID(t)
+
+	for name, act := range map[string]func(int) error{
+		"Terminate": Terminate, "Kill": Kill, "Suspend": Suspend, "Resume": Resume,
+	} {
+		if err := act(pid); !errors.Is(err, oserr.ErrProcessGone) {
+			t.Errorf("%s on a missing pid: err = %v, want ErrProcessGone", name, err)
+		}
+	}
+	if _, err := Priority(pid); !errors.Is(err, oserr.ErrProcessGone) {
+		t.Errorf("Priority on a missing pid: err = %v, want ErrProcessGone", err)
+	}
+	if err := SetPriority(pid, 5); !errors.Is(err, oserr.ErrProcessGone) {
+		t.Errorf("SetPriority on a missing pid: err = %v, want ErrProcessGone", err)
+	}
 }
 
 func TestPriorityMatchesWhatProcReports(t *testing.T) {
@@ -326,5 +408,22 @@ func TestSetPriorityRoundTrip(t *testing.T) {
 	}
 	if executed == 0 {
 		t.Skipf("the child already runs at nice %d, above every target; nothing was checked", before)
+	}
+}
+
+func TestLoweringNiceNeedsPrivilege(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root may lower nice")
+	}
+	c := spawnSleep(t)
+	if err := SetPriority(c.pid, 10); err != nil {
+		t.Skipf("cannot raise nice to 10 in this environment: %v", err)
+	}
+	err := SetPriority(c.pid, -20)
+	if err == nil {
+		t.Skip("this user may lower nice (RLIMIT_NICE or CAP_SYS_NICE)")
+	}
+	if !errors.Is(err, oserr.ErrPermission) {
+		t.Fatalf("lowering nice without privilege: err = %v, want ErrPermission", err)
 	}
 }
