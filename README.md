@@ -298,18 +298,18 @@ entero.)
 | 14 | Mensaje de confirmación que nombra el proceso y la acción | `confirmLine` y los avisos (notices) en `internal/tui/actions.go` |
 | 15 | Mensaje claro, sin caída del programa, cuando el proceso ya no existe o se deniega el permiso | `internal/oserr/oserr.go`; llamadas a `Classify` en `internal/procfs` y `internal/control`; `failure` en `internal/tui/actions.go`; `Refresh` omite los procesos que terminan mientras se leen |
 
-## Testing
+## Pruebas
 
 ```sh
-go test ./...                                   # all packages
-go test -cover ./...                            # with statement coverage
+go test ./...                                   # todos los paquetes
+go test -cover ./...                            # con cobertura de sentencias
 go test -race ./internal/tui/ ./internal/monitor/
-go vet ./... && gofmt -l .                      # gofmt prints nothing when clean
+go vet ./... && gofmt -l .                      # gofmt no imprime nada si todo está limpio
 ```
 
-There are 271 test functions. Coverage observed on the last run of `go test -cover ./...`:
+Hay 271 funciones de prueba. Cobertura observada en la última ejecución de `go test -cover ./...`:
 
-| Package | Statements covered |
+| Paquete | Sentencias cubiertas |
 |---|---|
 | `internal/control` | 100.0% |
 | `internal/monitor` | 100.0% |
@@ -318,49 +318,53 @@ There are 271 test functions. Coverage observed on the last run of `go test -cov
 | `internal/oserr` | 83.3% |
 | `cmd/procmon` | 39.5% |
 
-What is not covered: in `procfs` and `oserr`, a few error returns (a system file that cannot be read, an error
-that is already classified); in `cmd/procmon`, `main` and the thin `controller` adapter, which need a real
-terminal. Those were exercised by hand in a terminal multiplexer instead.
+Lo que no está cubierto: en `procfs` y `oserr`, algunos retornos de error (un archivo del sistema que no se puede
+leer, un error que ya está clasificado); en `cmd/procmon`, `main` y el delgado adaptador `controller`, que necesitan
+una terminal real. Esos se ejercitaron a mano en un multiplexor de terminal.
 
-- **TDD.** Each unit started red (a failing test, or a build failure for a type that did not exist yet), then
-  green, then refactor. The progress log in `odd/tasks/process-monitor.md` lists the tests that failed first and
-  the mutation checks (break the code on purpose, confirm a test fails).
-- **Fixtures.** `internal/procfs/testdata/proc/` is a small tree laid out like `/proc` (19 files): a process
-  with three threads, a kernel thread, a process whose name contains parentheses, a non-numeric directory that
-  must be ignored, and the system files. `procfs.NewFS(root)` points the parsers at it, so the tests do not depend on the machine.
-- **Fakes for the ports.** `internal/monitor/fake_test.go` is a `Source` whose counters change between two
-  refreshes, which is how the %CPU tests work without sleeping. `internal/tui/fakes_test.go` has a fake
-  `Monitor` and a fake `Control` that records calls. The screen is tested by sending `tea.KeyPressMsg` and
-  `tea.WindowSizeMsg` to the model and reading the frame as text, checking that no line is wider than the terminal.
-- **`control` tests.** The three system calls sit behind variables so a test can check exactly what would reach
-  the kernel (and simulate `EPERM`). Tests with real processes signal a `sleep` child started by the test; the
-  "process is gone" test uses a PID above `pid_max`, so no real signal can reach a recycled PID.
-- **Real `/proc`.** `TestRealProc`, `TestRefreshOnTheRealProc` and `TestThreadsOnTheRealProc` read the live
-  system and skip when there is no `/proc`.
+- **TDD.** Cada unidad empezó en rojo (una prueba que falla, o un fallo de compilación por un tipo que aún no
+  existía), luego verde y luego refactor. El registro de progreso de `odd/tasks/process-monitor.md` enumera las
+  pruebas que fallaron primero y las comprobaciones de mutación (romper el código a propósito y confirmar que una
+  prueba falla).
+- **Fixtures.** `internal/procfs/testdata/proc/` es un árbol pequeño con la misma estructura que `/proc` (19
+  archivos): un proceso con tres hilos, un hilo del kernel, un proceso cuyo nombre contiene paréntesis, un directorio
+  no numérico que debe ignorarse y los archivos del sistema. `procfs.NewFS(root)` apunta los parsers hacia él, de
+  modo que las pruebas no dependen de la máquina.
+- **Fakes para los puertos.** `internal/monitor/fake_test.go` es un `Source` cuyos contadores cambian entre dos
+  refrescos, que es como funcionan las pruebas de %CPU sin esperas. `internal/tui/fakes_test.go` tiene un `Monitor`
+  falso y un `Control` falso que registra las llamadas. La pantalla se prueba enviando `tea.KeyPressMsg` y
+  `tea.WindowSizeMsg` al modelo y leyendo el frame como texto, comprobando que ninguna línea es más ancha que la
+  terminal.
+- **Pruebas de `control`.** Las tres llamadas al sistema están detrás de variables para que una prueba pueda
+  comprobar exactamente qué llegaría al kernel (y simular `EPERM`). Las pruebas con procesos reales envían señales a
+  un hijo `sleep` iniciado por la prueba; la prueba de "el proceso ya no existe" usa un PID por encima de `pid_max`,
+  de modo que ninguna señal real puede alcanzar un PID reciclado.
+- **`/proc` real.** `TestRealProc`, `TestRefreshOnTheRealProc` y `TestThreadsOnTheRealProc` leen el sistema en vivo
+  y se omiten (skip) cuando no hay `/proc`.
 
-## Known limitations
+## Limitaciones conocidas
 
-- **The state letter is the main thread's.** `/proc/[pid]/stat` reports the state of the thread whose id is the
-  PID, while `utime` and `stime` add up all threads. A process burning CPU on another thread can show `S` in the
-  table. Observed with a test program whose main thread sleeps while another thread spins: the process showed
-  `S`, the spinning thread `R`. This is not guaranteed in either direction (a similar program without pinning
-  its main goroutine showed `R`); the detail view lists the state of every thread.
-- **`Verify` narrows the PID race, it does not close it** (see the previous section). A pidfd would.
-- **Signalling a zombie succeeds and does nothing.** `kill(2)` returns success on a zombie, which stays in state
-  Z until its parent reads its exit status. The status line will still say the signal was sent.
-- **%CPU is coarse at short intervals** (section 6): the counters tick in units of 10 ms.
-- **Priority acts on one thread.** `n` changes the nice of the main thread, not of the other threads of the
-  process.
-- **Permissions.** Another user's process may hide `status`, `cmdline` or its threads. The row then keeps what
-  could be read (USER `?`, command `[comm]`) and the detail view says "permission denied" for the threads.
-- **USER needs `/etc/passwd`,** the only file read outside `/proc`. If it is unreadable or a UID is missing, the
-  number is shown.
-- **Counts by state.** Tasks counts every process read; the other counts cover R, S/I, D, T/t and Z, so a rare
-  state (for example X) appears only in the total.
-- **History is in memory only:** 60 samples per process (one minute at the default interval), dropped when the
-  process exits or the program ends.
-- **Suspending under tmux.** The tmux server resumes a stopped pane process of its own right away (checked:
-  a direct child of the tmux server was back in state S 0.3 s after SIGSTOP). To demonstrate `s` inside tmux,
-  pick a process that is not a direct child of the tmux server, for example run `sh -c 'sleep 300 & wait'` and
-  select the `sleep`.
-- **Linux only,** because of `/proc` and the Linux behaviour of `getpriority` and `setpriority`.
+- **La letra de estado es la del hilo principal.** `/proc/[pid]/stat` reporta el estado del hilo cuyo id es el PID,
+  mientras que `utime` y `stime` suman todos los hilos. Un proceso que consume CPU en otro hilo puede mostrar `S` en
+  la tabla. Observado con un programa de prueba cuyo hilo principal duerme mientras otro hilo gira (spin): el proceso
+  mostró `S`, el hilo que giraba `R`. Esto no está garantizado en ningún sentido (un programa similar sin fijar su
+  goroutine principal mostró `R`); la vista de detalle lista el estado de cada hilo.
+- **`Verify` reduce la carrera del PID, no la cierra** (véase la sección anterior). Un pidfd sí la cerraría.
+- **Señalar un zombi tiene éxito y no hace nada.** `kill(2)` devuelve éxito sobre un zombi, que permanece en estado
+  Z hasta que su padre lee su estado de salida. La línea de estado igualmente dirá que se envió la señal.
+- **El %CPU es grueso con intervalos cortos** (sección 6): los contadores avanzan en unidades de 10 ms.
+- **La prioridad actúa sobre un hilo.** `n` cambia el nice del hilo principal, no el de los demás hilos del
+  proceso.
+- **Permisos.** El proceso de otro usuario puede ocultar `status`, `cmdline` o sus hilos. La fila conserva entonces
+  lo que se pudo leer (USER `?`, comando `[comm]`) y la vista de detalle dice "permission denied" para los hilos.
+- **USER necesita `/etc/passwd`,** el único archivo leído fuera de `/proc`. Si no se puede leer o falta un UID, se
+  muestra el número.
+- **Conteos por estado.** `Tasks` cuenta todos los procesos leídos; los demás conteos cubren R, S/I, D, T/t y Z, así
+  que un estado raro (por ejemplo X) aparece solo en el total.
+- **El historial solo está en memoria:** 60 muestras por proceso (un minuto con el intervalo por defecto), se
+  descartan cuando el proceso termina o el programa finaliza.
+- **Suspender bajo tmux.** El servidor de tmux reanuda de inmediato, por su cuenta, un proceso de panel detenido
+  (comprobado: un hijo directo del servidor de tmux volvió al estado S 0.3 s después de SIGSTOP). Para demostrar `s`
+  dentro de tmux, se elige un proceso que no sea hijo directo del servidor de tmux, por ejemplo se ejecuta
+  `sh -c 'sleep 300 & wait'` y se selecciona el `sleep`.
+- **Solo Linux,** por `/proc` y por el comportamiento de Linux de `getpriority` y `setpriority`.
