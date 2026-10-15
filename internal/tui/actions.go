@@ -71,6 +71,14 @@ type pending struct {
 // actionTarget is the process the keys act on: the open one in the detail
 // view, the selected row in the table. When there is none, it says so.
 func (m *Model) actionTarget() (target, bool) {
+	if m.view == viewDetail {
+		p, alive := m.detailProc()
+		if !alive {
+			m.notice = notice{text: fmt.Sprintf("process %d no longer exists", m.detail.pid), isErr: true}
+			return target{}, false
+		}
+		return newTarget(p), true
+	}
 	p, ok := m.selectedProc()
 	if !ok {
 		m.notice = notice{text: "no process selected"}

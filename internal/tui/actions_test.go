@@ -411,6 +411,53 @@ func TestOtherProcessesStillWorkWhenOneIsOurOwn(t *testing.T) {
 	}
 }
 
+func TestActionsWorkFromTheDetailView(t *testing.T) {
+	m, mon, ctl := actionSetup()
+	mon.threads = map[int][]monitor.Thread{200: {thread(200, "firefox", 'S', 0)}}
+	deliver(m, press(m, "enter"))
+
+	press(m, "s")
+	if !strings.Contains(footerText(m), "Suspend 200 (firefox)") {
+		t.Errorf("the question must name the open process: %q", footerText(m))
+	}
+	press(m, "y")
+	if !slices.Equal(ctl.calls, []string{"suspend 200"}) {
+		t.Fatalf("calls = %v, want the open process to be suspended", ctl.calls)
+	}
+	press(m, "x")
+	if !strings.Contains(footerText(m), "Terminate 200 (firefox)") {
+		t.Errorf("the question must name the open process: %q", footerText(m))
+	}
+	press(m, "y")
+	if !slices.Equal(ctl.calls, []string{"suspend 200", "terminate 200"}) {
+		t.Errorf("calls = %v", ctl.calls)
+	}
+	if m.view != viewDetail {
+		t.Error("the detail stays open after an action")
+	}
+}
+
+func TestDetailActionsTargetTheOpenProcessEvenAfterItDied(t *testing.T) {
+	m, mon, ctl := actionSetup()
+	deliver(m, press(m, "enter"))
+	mon.snap = snapshotOf(proc(100, "shell", 1), proc(300, "other", 2))
+	m.Update(refreshedMsg{snap: mon.snap}) // the selection moves to a neighbour
+
+	for _, keys := range [][]string{{"s"}, {"x"}, {"X"}, {"r"}} {
+		press(m, keys...)
+		if got := footerText(m); !strings.Contains(got, "process 200 no longer exists") {
+			t.Errorf("%v: message = %q", keys, got)
+		}
+		if m.mode != modeNormal {
+			t.Errorf("%v: no question for a process that is gone", keys)
+		}
+	}
+	press(m, "y")
+	if len(ctl.calls) != 0 {
+		t.Errorf("calls = %v: a neighbour must not be signalled", ctl.calls)
+	}
+}
+
 func TestActionsWithNothingSelected(t *testing.T) {
 	m := loaded(100, 30)
 	for _, key := range []string{"x", "X", "s", "r"} {

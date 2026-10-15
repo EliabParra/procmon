@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/EliabParra/procmon/internal/monitor"
 	"github.com/EliabParra/procmon/internal/oserr"
 )
 
@@ -260,6 +261,24 @@ func TestTheGuardAlsoStandsAtTheNiceCommit(t *testing.T) {
 	m.commitNice(pending{who: target{pid: 200, startTime: 777, name: "firefox"}, nice: 0}, "5")
 	if len(ctl.calls) != 0 || len(mon.verified) != 0 {
 		t.Errorf("procmon reached the kernel for itself: %v", ctl.calls)
+	}
+}
+
+func TestNiceFromTheDetailView(t *testing.T) {
+	m, mon, ctl := actionSetup()
+	mon.threads = map[int][]monitor.Thread{200: {thread(200, "firefox", 'S', 0)}}
+	ctl.nice = 2
+	deliver(m, press(m, "enter"))
+
+	press(m, "n")
+	typeText(m, "8")
+	press(m, "enter")
+
+	if got := ctl.calls[len(ctl.calls)-1]; got != "setpriority 8 200" {
+		t.Errorf("last call = %q", got)
+	}
+	if m.view != viewDetail {
+		t.Error("the detail stays open")
 	}
 }
 
