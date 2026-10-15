@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/EliabParra/procmon/internal/monitor"
 )
@@ -113,7 +114,7 @@ func (m *Model) kv(label, value string) string {
 func (m *Model) identityLines(p monitor.Process) []string {
 	first := strings.Join([]string{
 		m.kv("PID", strconv.Itoa(p.PID)),
-		m.kv("state", clean(string(rune(p.State)))),
+		m.styles.dim.Render("state") + " " + m.stateLabel(p.State),
 		m.kv("user", clean(p.User)),
 		m.kv("nice", strconv.Itoa(p.Nice)),
 		m.kv("PPID", strconv.Itoa(p.PPID)),
@@ -121,4 +122,36 @@ func (m *Model) identityLines(p monitor.Process) []string {
 		m.kv("cpu", fmt.Sprintf("%.1f", p.CPUPercent)+"%"),
 	}, gap)
 	return []string{first, m.styles.dim.Render("cmd") + " " + m.styles.text.Render(clean(p.Command))}
+}
+
+// stateLabel is a state letter and its name, in the colour of the table.
+func (m *Model) stateLabel(state byte) string {
+	text := clean(string(rune(state))) + " " + stateName(state)
+	if hot, ok := m.styles.state(state); ok {
+		return lipgloss.NewStyle().Foreground(hot.color).Bold(true).Render(text)
+	}
+	return m.styles.text.Render(text)
+}
+
+func stateName(state byte) string {
+	switch state {
+	case 'R':
+		return "running"
+	case 'S':
+		return "sleeping"
+	case 'D':
+		return "disk sleep"
+	case 'Z':
+		return "zombie"
+	case 'T':
+		return "stopped"
+	case 't':
+		return "tracing stop"
+	case 'I':
+		return "idle"
+	case 'X', 'x':
+		return "dead"
+	default:
+		return "unknown"
+	}
 }

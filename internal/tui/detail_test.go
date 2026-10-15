@@ -45,7 +45,7 @@ func TestEnterOpensTheDetailOfTheSelectedProcess(t *testing.T) {
 	out := screenText(m)
 
 	for _, want := range []string{
-		"PID 200", "state S", "user eliab", "nice 5",
+		"PID 200", "state S sleeping", "user eliab", "nice 5",
 		"/usr/bin/editor --flag", "view detail", "threads 3",
 	} {
 		if !strings.Contains(out, want) {
@@ -66,6 +66,23 @@ func TestEnterOnAnEmptyTableSaysThereIsNothingToOpen(t *testing.T) {
 	}
 	if !strings.Contains(screenText(m), "no process selected") {
 		t.Errorf("the status line must say so:\n%s", screenText(m))
+	}
+}
+
+func TestDetailHeaderHighlightsTheState(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	zombie := proc(200, "/usr/bin/editor", 0)
+	zombie.State = 'Z'
+	zombie.StartTime = 777
+	mon.snap = snapshotOf(proc(100, "shell", 1), zombie, proc(300, "other", 2))
+	m.Update(refreshedMsg{snap: mon.snap})
+	openDetail(m)
+
+	if !strings.Contains(screenText(m), "state Z zombie") {
+		t.Errorf("the state must be named:\n%s", screenText(m))
+	}
+	if line := rawLine(t, m, "state"); !strings.Contains(line, sgrFg(colZombie)) {
+		t.Errorf("a zombie state is drawn in the zombie colour: %q", line)
 	}
 }
 
@@ -123,5 +140,16 @@ func TestTableKeysDoNothingInTheDetail(t *testing.T) {
 	press(m, "/")
 	if m.mode != modeNormal {
 		t.Error("the filter cannot be edited from the detail view")
+	}
+}
+
+func TestStateNames(t *testing.T) {
+	for state, want := range map[byte]string{
+		'R': "running", 'S': "sleeping", 'D': "disk sleep", 'Z': "zombie", 'T': "stopped",
+		't': "tracing stop", 'I': "idle", 'X': "dead", 'x': "dead", '?': "unknown",
+	} {
+		if got := stateName(state); got != want {
+			t.Errorf("stateName(%q) = %q, want %q", state, got, want)
+		}
 	}
 }
