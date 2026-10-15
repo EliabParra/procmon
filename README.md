@@ -78,99 +78,101 @@ Usa recuadros redondeados desde 40x12 y un diseño compacto por debajo de ese ta
 pertenece a esa línea de estado/ayuda, incluso en una terminal de una o dos filas de alto, de modo que una pregunta
 o un mensaje nunca queda oculto.
 
-## Architecture
+## Arquitectura
 
-Four packages and one shared error package, wired in `cmd/procmon/main.go`:
+Cuatro paquetes y un paquete compartido de errores, conectados en `cmd/procmon/main.go`:
 
-| Package | Role | Main API |
+| Paquete | Rol | API principal |
 |---|---|---|
-| `internal/procfs` | Read door. Parses `/proc` files into plain structs. No percentages or deltas. The `/proc` root is injectable. | `FS` with `PIDs`, `Stat`, `Status`, `Cmdline`, `Threads`, `SystemStat`, `MemInfo`, `LoadAvg`, `Uptime`, `ClockTicks` |
-| `internal/control` | Act door. Signals and priority through system calls, with validation. | `Terminate`, `Kill`, `Suspend`, `Resume`, `Priority`, `SetPriority` |
-| `internal/monitor` | Logic. Snapshots, %CPU from deltas, summary, sort, filter, tree, CPU history, UID to name. | `Monitor` with `Refresh`, `History`, `Threads`, `Verify`; `Sort`, `Filter`, `BuildTree`, `WithAncestors` |
-| `internal/tui` | Screen. Bubble Tea model, layout, keys, views. Never reads `/proc` and never sends signals itself. | `New`, `Model`, ports `Monitor` and `Control` |
-| `internal/oserr` | Shared vocabulary for the two failures to expect: the process is gone, or permission is denied. | `ErrProcessGone`, `ErrPermission`, `Classify` |
+| `internal/procfs` | Puerta de lectura. Analiza los archivos de `/proc` y los convierte en structs simples. Sin porcentajes ni deltas. La raíz de `/proc` es inyectable. | `FS` con `PIDs`, `Stat`, `Status`, `Cmdline`, `Threads`, `SystemStat`, `MemInfo`, `LoadAvg`, `Uptime`, `ClockTicks` |
+| `internal/control` | Puerta de acción. Señales y prioridad mediante llamadas al sistema, con validación. | `Terminate`, `Kill`, `Suspend`, `Resume`, `Priority`, `SetPriority` |
+| `internal/monitor` | Lógica. Snapshots, %CPU a partir de deltas, resumen, orden, filtro, árbol, historial de CPU, UID a nombre. | `Monitor` con `Refresh`, `History`, `Threads`, `Verify`; `Sort`, `Filter`, `BuildTree`, `WithAncestors` |
+| `internal/tui` | Pantalla. Modelo de Bubble Tea, diseño, teclas, vistas. Nunca lee `/proc` y nunca envía señales por sí misma. | `New`, `Model`, puertos `Monitor` y `Control` |
+| `internal/oserr` | Vocabulario compartido para los dos fallos esperables: el proceso ya no existe, o se denegó el permiso. | `ErrProcessGone`, `ErrPermission`, `Classify` |
 
-Dependency direction. A solid arrow means "imports"; a dotted one means "only through an interface".
-`cmd/procmon` imports the four packages to wire them; `internal/oserr` is imported by procfs, control, monitor
-and tui.
+Dirección de las dependencias. Una flecha continua significa «importa»; una punteada significa «solo a través de
+una interfaz». `cmd/procmon` importa los cuatro paquetes para conectarlos; `internal/oserr` es importado por procfs,
+control, monitor y tui.
 
 ```
-cmd/procmon     wiring only: imports tui, monitor, procfs and control
+cmd/procmon     solo ensamblaje: importa tui, monitor, procfs y control
 
 internal/tui ------> internal/monitor ------> internal/procfs ------> /proc
      :
-     :  Control port (an interface; the adapter lives in cmd/procmon)
+     :  Puerto Control (una interfaz; el adaptador vive en cmd/procmon)
      v
 internal/control ------> kill(2), getpriority(2), setpriority(2)
 ```
 
-`internal/tui` imports neither `procfs` nor `control`: it only knows the two interfaces below, and `main.go`
-plugs the real implementations in.
+`internal/tui` no importa ni `procfs` ni `control`: solo conoce las dos interfaces siguientes, y `main.go` conecta
+las implementaciones reales.
 
-- **`monitor.Source`** (`internal/monitor/source.go`) is everything the monitor reads from the system:
+- **`monitor.Source`** (`internal/monitor/source.go`) es todo lo que el monitor lee del sistema:
   `PIDs`, `Stat`, `Status`, `Cmdline`, `Threads`, `SystemStat`, `MemInfo`, `LoadAvg`, `Uptime`, `ClockTicks`.
-  `procfs.FS` is the adapter; `var _ Source = procfs.FS{}` makes the build fail if it ever stops fitting.
-  Tests use a fake source whose counters change between two refreshes.
-- **`tui.Monitor`** (`Refresh`, `History`, `Threads`, `Verify`) is satisfied by `*monitor.Monitor`.
-  **`tui.Control`** (`Terminate`, `Kill`, `Suspend`, `Resume`, `Priority`, `SetPriority`) is satisfied by a small
-  `controller` adapter in `main.go` that forwards to the functions of `control`.
-  Tests plug in fakes that record calls, so no test of the screen sends a real signal.
+  `procfs.FS` es el adaptador; `var _ Source = procfs.FS{}` hace que la compilación falle si deja de encajar.
+  Las pruebas usan una fuente falsa (fake) cuyos contadores cambian entre dos refrescos.
+- **`tui.Monitor`** (`Refresh`, `History`, `Threads`, `Verify`) lo satisface `*monitor.Monitor`.
+  **`tui.Control`** (`Terminate`, `Kill`, `Suspend`, `Resume`, `Priority`, `SetPriority`) lo satisface un pequeño
+  adaptador `controller` en `main.go` que reenvía a las funciones de `control`.
+  Las pruebas conectan fakes que registran las llamadas, de modo que ninguna prueba de la pantalla envía una señal
+  real.
 
-The screen follows the Elm architecture of Bubble Tea: one model, one `Update`, one `View`.
+La pantalla sigue la arquitectura Elm de Bubble Tea: un modelo, un `Update`, un `View`.
 
 ```
-Init           -> Cmd: refresh (in the background) + Cmd: tick after min(interval, 0.5 s)
-tickMsg        -> Update -> Cmd: refresh + Cmd: next tick   (a tick from an old interval is dropped)
-refreshedMsg   -> Update -> store the snapshot, rebuild the rows: filter -> sort -> tree
-KeyPressMsg    -> Update -> change mode, sort, filter or selection, or call Control
-WindowSizeMsg  -> Update -> new size, layout recomputed
-every message  -> View   -> a frame of exactly `height` lines, none wider than the terminal
+Init           -> Cmd: refresh (en segundo plano) + Cmd: tick tras min(interval, 0.5 s)
+tickMsg        -> Update -> Cmd: refresh + Cmd: siguiente tick   (un tick de un intervalo anterior se descarta)
+refreshedMsg   -> Update -> guardar el snapshot, reconstruir las filas: filtro -> orden -> árbol
+KeyPressMsg    -> Update -> cambiar modo, orden, filtro o selección, o llamar a Control
+WindowSizeMsg  -> Update -> nuevo tamaño, se recalcula el diseño
+cada mensaje   -> View   -> un frame de exactamente `height` líneas, ninguna más ancha que la terminal
 ```
 
-`Update` never blocks: `Refresh` runs inside a `tea.Cmd`, and only one refresh can be in flight. A failed
-refresh keeps the old snapshot on screen and shows "refresh failed: ..." in the status line. Bubble Tea's
-renderer draws from a cell buffer and writes only what changed between frames, which is what avoids flicker.
+`Update` nunca se bloquea: `Refresh` se ejecuta dentro de un `tea.Cmd`, y solo puede haber un refresco en curso. Un
+refresco fallido conserva el snapshot anterior en pantalla y muestra "refresh failed: ..." (refresco fallido) en la
+línea de estado. El renderer de Bubble Tea dibuja a partir de un buffer de celdas y escribe solo lo que cambió entre
+frames, que es lo que evita el parpadeo.
 
-## Where each datum comes from
+## De dónde sale cada dato
 
-`stat` field numbers follow `proc(5)`. `comm` (field 2) may contain spaces and `)`, so the parser splits the
-line at the last `)` (one fixture is a process called `my (weird) app`).
+Los números de campo de `stat` siguen `proc(5)`. `comm` (campo 2) puede contener espacios y `)`, por lo que el
+parser divide la línea en el último `)` (uno de los fixtures es un proceso llamado `my (weird) app`).
 
-**Process table**
+**Tabla de procesos**
 
-| Column | Source |
+| Columna | Fuente |
 |---|---|
-| PID | Numeric directory names under `/proc` (`self`, `sys`... are ignored) |
-| PPID | `/proc/[pid]/stat` field 4 |
-| USER | `/proc/[pid]/status` line `Uid:` (first value, the real UID), then name from `/etc/passwd`. Shows the number if the UID is not listed, `?` if `status` cannot be read |
-| S | `stat` field 3 (state letter) |
-| %CPU | Per process: `stat` fields 14 (`utime`) + 15 (`stime`). System: the `cpu` line of `/proc/stat`. See the next section |
-| %MEM | `VmRSS` of `status` divided by `MemTotal` of `/proc/meminfo`, times 100 |
-| RES | `status` line `VmRSS:` (kB). Kernel threads have none and show `0K` |
-| THR | `stat` field 20 (`num_threads`) |
-| PRI | `stat` field 18 (`priority`, 20 + nice for normal tasks). Values below -99 (real-time) show as `rt` |
-| NI | `stat` field 19 (`nice`) |
-| TIME | (`utime` + `stime`) / CLK_TCK. CLK_TCK is read from `/proc/self/auxv` (entry `AT_CLKTCK`), 100 if unavailable |
-| COMMAND | `/proc/[pid]/cmdline` with NUL separators turned into spaces; when empty (kernel threads, zombies) `[comm]` |
+| PID | Nombres de directorio numéricos bajo `/proc` (`self`, `sys`... se ignoran) |
+| PPID | Campo 4 de `/proc/[pid]/stat` |
+| USER | Línea `Uid:` de `/proc/[pid]/status` (el primer valor, el UID real), luego el nombre desde `/etc/passwd`. Muestra el número si el UID no figura en la lista, `?` si no se puede leer `status` |
+| S | Campo 3 de `stat` (letra de estado) |
+| %CPU | Por proceso: campos 14 (`utime`) + 15 (`stime`) de `stat`. Sistema: la línea `cpu` de `/proc/stat`. Véase la sección siguiente |
+| %MEM | `VmRSS` de `status` dividido entre `MemTotal` de `/proc/meminfo`, por 100 |
+| RES | Línea `VmRSS:` de `status` (kB). Los hilos del kernel no tienen y muestran `0K` |
+| THR | Campo 20 de `stat` (`num_threads`) |
+| PRI | Campo 18 de `stat` (`priority`, 20 + nice en las tareas normales). Los valores menores que -99 (tiempo real) se muestran como `rt` |
+| NI | Campo 19 de `stat` (`nice`) |
+| TIME | (`utime` + `stime`) / CLK_TCK. CLK_TCK se lee de `/proc/self/auxv` (entrada `AT_CLKTCK`), 100 si no está disponible |
+| COMMAND | `/proc/[pid]/cmdline` con los separadores NUL convertidos en espacios; cuando está vacío (hilos del kernel, zombis) `[comm]` |
 
-**Header**
+**Encabezado**
 
-| Item | Source |
+| Elemento | Fuente |
 |---|---|
-| Tasks | Number of processes read in this snapshot |
-| running, sleeping, disk-sleep, stopped, zombie | Count of state letters R, S plus I, D, T plus t, Z (idle kernel threads, state I, count as sleeping as in `top`) |
-| Load | `/proc/loadavg` fields 1 to 3 |
-| up | `/proc/uptime` field 1 |
-| Mem used / total, avail | `/proc/meminfo` `MemTotal` and `MemAvailable`; used = `MemTotal` - `MemAvailable` |
-| Swap | `SwapTotal`, and used = `SwapTotal` - `SwapFree` |
-| Cores (factor of the per-core %CPU) | Number of `cpuN` lines of `/proc/stat` |
+| `Tasks` | Número de procesos leídos en este snapshot |
+| `running`, `sleeping`, `disk-sleep`, `stopped`, `zombie` | Conteo de las letras de estado R, S más I, D, T más t, Z (los hilos del kernel inactivos, estado I, cuentan como sleeping igual que en `top`) |
+| `Load` | Campos 1 a 3 de `/proc/loadavg` |
+| `up` | Campo 1 de `/proc/uptime` |
+| `Mem` used / total, `avail` | `MemTotal` y `MemAvailable` de `/proc/meminfo`; used = `MemTotal` - `MemAvailable` |
+| `Swap` | `SwapTotal`, y used = `SwapTotal` - `SwapFree` |
+| Cores (factor del %CPU por núcleo) | Número de líneas `cpuN` de `/proc/stat` |
 
-**Detail view**
+**Vista de detalle**
 
-| Item | Source |
+| Elemento | Fuente |
 |---|---|
-| Threads: TID, state, TIME, name | `/proc/[pid]/task/[tid]/stat` (fields 1, 3, 14 + 15, 2) |
-| CPU history | The last 60 %CPU samples of the process, one per refresh, kept in memory by `monitor` in the unit of the course formula and drawn in the active %CPU mode, on an autoscaled chart (see the next section) |
+| Threads: TID, state, TIME, name | `/proc/[pid]/task/[tid]/stat` (campos 1, 3, 14 + 15, 2) |
+| Historial de CPU | Las últimas 60 muestras de %CPU del proceso, una por refresco, guardadas en memoria por `monitor` en la unidad de la fórmula del enunciado y dibujadas en el modo de %CPU activo, en un gráfico con autoescala (véase la sección siguiente) |
 
 ## How %CPU is computed
 
