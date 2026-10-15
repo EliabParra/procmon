@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/EliabParra/procmon/internal/monitor"
+	"github.com/EliabParra/procmon/internal/oserr"
 )
 
 // detailFixed is how many lines of the detail box come before the thread rows:
@@ -22,13 +24,14 @@ type detailData struct {
 	pid     int // 0 when nothing has been read yet
 	history []float64
 	threads []monitor.Thread
+	err     error // from reading the threads
 }
 
 // readDetail reads the detail of pid. It runs inside a command, off the
 // update loop, because listing the threads of a big process takes a while.
 func readDetail(mon Monitor, pid int) detailData {
-	threads, _ := mon.Threads(pid)
-	return detailData{pid: pid, history: mon.History(pid), threads: threads}
+	threads, err := mon.Threads(pid)
+	return detailData{pid: pid, history: mon.History(pid), threads: threads, err: err}
 }
 
 // detailMsg carries the detail read right after the screen was opened, so it
@@ -112,7 +115,7 @@ func (m *Model) trackDetail() {
 // then the last one seen.
 func (m *Model) detailProc() (p monitor.Process, alive bool) {
 	p, ok := m.snapProc(m.detail.pid)
-	if ok && p.StartTime == m.detail.startTime {
+	if ok && p.StartTime == m.detail.startTime && !errors.Is(m.detail.data.err, oserr.ErrProcessGone) {
 		return p, true
 	}
 	return m.detail.last, false
@@ -236,6 +239,10 @@ func (m *Model) threadLines(w int) []string {
 	switch {
 	case d.pid == 0:
 		return []string{title, m.styles.dim.Render("reading threads…")}
+	case errors.Is(d.err, oserr.ErrPermission):
+		return []string{title, m.styles.err.Render(fmt.Sprintf("permission denied: cannot read the threads of %d", d.pid))}
+	case d.err != nil:
+		return []string{title, m.styles.err.Render("cannot read the threads: " + clean(d.err.Error()))}
 	}
 
 	rows := m.threadRows()

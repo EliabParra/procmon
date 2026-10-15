@@ -298,6 +298,19 @@ func TestProcessThatExitsWhileTheDetailIsOpen(t *testing.T) {
 	}
 }
 
+func TestProcessThatDiesBetweenRefreshesIsReportedByTheThreadRead(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	openDetail(m)
+	mon.threadsErr = fmt.Errorf("monitor: threads of 200: %w", oserr.ErrProcessGone)
+
+	// The snapshot still lists it, but reading its threads says it is gone.
+	refreshNow(m)
+
+	if out := screenText(m); !strings.Contains(out, "process 200 no longer exists") {
+		t.Errorf("a clear message is expected:\n%s", out)
+	}
+}
+
 func TestRecycledPIDIsNotTheSameProcess(t *testing.T) {
 	m, mon := editorSetup(120, 35)
 	openDetail(m)
@@ -310,6 +323,31 @@ func TestRecycledPIDIsNotTheSameProcess(t *testing.T) {
 	out := screenText(m)
 	if !strings.Contains(out, "no longer exists") || strings.Contains(out, "a-stranger") {
 		t.Errorf("a reused PID must not be shown as the old process:\n%s", out)
+	}
+}
+
+func TestPermissionDeniedOnTheThreadsIsReportedAndTheRestStays(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	openDetail(m)
+	mon.threadsErr = fmt.Errorf("monitor: threads of 200: %w", oserr.ErrPermission)
+	refreshNow(m)
+
+	out := screenText(m)
+	if !strings.Contains(out, "permission denied") {
+		t.Errorf("the threads section must say permission was denied:\n%s", out)
+	}
+	if !strings.Contains(out, "PID 200") || !strings.Contains(out, "CPU history") {
+		t.Errorf("the header and the chart must stay:\n%s", out)
+	}
+}
+
+func TestOtherThreadErrorsAreShownToo(t *testing.T) {
+	m, mon := editorSetup(120, 35)
+	openDetail(m)
+	mon.threadsErr = fmt.Errorf("monitor: threads of 200: boom")
+	refreshNow(m)
+	if !strings.Contains(screenText(m), "boom") {
+		t.Errorf("the reason must be on screen:\n%s", screenText(m))
 	}
 }
 
