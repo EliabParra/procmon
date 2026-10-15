@@ -174,122 +174,129 @@ parser divide la línea en el último `)` (uno de los fixtures es un proceso lla
 | Threads: TID, state, TIME, name | `/proc/[pid]/task/[tid]/stat` (campos 1, 3, 14 + 15, 2) |
 | Historial de CPU | Las últimas 60 muestras de %CPU del proceso, una por refresco, guardadas en memoria por `monitor` en la unidad de la fórmula del enunciado y dibujadas en el modo de %CPU activo, en un gráfico con autoescala (véase la sección siguiente) |
 
-## How %CPU is computed
+## Cómo se calcula el %CPU
 
-The course statement gives the formula: divide the difference of the process by the difference of the system.
-That is what the program computes and what it shows by default:
+El enunciado de la asignatura da la fórmula: dividir la diferencia del proceso entre la diferencia del sistema. Eso
+es lo que calcula el programa y lo que muestra por defecto:
 
 ```
-%CPU = (delta of the process's utime+stime) / (delta of the total jiffies of /proc/stat) x 100
+%CPU = (delta de utime+stime del proceso) / (delta de los jiffies totales de /proc/stat) x 100
 ```
 
-The result is the share of the **whole machine**, from 0 to 100. The `cpu` line of `/proc/stat` adds up all
-cores, so on 4 cores a process that keeps one core flat out gives 25. Example: 4 cores, 1 s, 100 ticks/s: the
-system grows by 400 ticks, a process that grew by 100 ticks shows 100 / 400 x 100 = 25%.
+El resultado es la fracción de **toda la máquina**, de 0 a 100. La línea `cpu` de `/proc/stat` suma todos los
+núcleos, así que en 4 núcleos un proceso que mantiene un núcleo al máximo da 25. Ejemplo: 4 núcleos, 1 s, 100
+ticks/s: el sistema crece 400 ticks, un proceso que creció 100 ticks muestra 100 / 400 x 100 = 25%.
 
-- **Two samples.** `Refresh` remembers, for every PID, its `utime+stime` and the system total of the previous
-  refresh. The total is the sum of the eight columns of the `cpu` line (user, nice, system, idle, iowait, irq,
-  softirq, steal; guest is ignored because the kernel already counts it inside user).
-- **One canonical value.** `monitor.CPUPercent` returns the formula above and nothing else; the history ring
-  buffer, the sort and every comparison use that value. The display mode below only changes how the screen
-  draws it, so switching it never reorders the table or rewrites the history.
-- **Per-core mode (`I`).** Press `I` (Shift+i) to see what `top` shows by default, its Irix mode: the same
-  figure multiplied by the number of cores (`monitor.PerCore`), so 100 means one core flat out and a
-  multithreaded process can go beyond it (up to 100 x cores). The same example reads 100 / 400 x 100 x 4 =
-  100%. `top` has the same switch under Shift+I: Irix mode on is per-core, off (called Solaris mode) is the
-  share of the whole machine. Pressing `I` again goes back to the formula of the course. The header pill says
-  `cpu machine` or `cpu per-core`, a one-line notice says what 100 means, and `-cpu-mode core` starts in
-  per-core mode. The mode applies to the table, the tree, the CPU line of the detail view and its history
-  chart; on a machine with 1 core the two modes are the same.
-- **History chart scale.** The detail view draws the last 60 samples as a one-line bar chart. Its top is the
-  largest sample rounded up to a step of 1, 2, 5, 10, 20, 50, 100, 200, 500... (1, 2 or 5 times a power of
-  ten), with a floor of 1%: a light process fills the chart, an idle one stays on the lowest block instead of
-  amplifying counter noise. The label `scale 0-10%` next to min, avg and max says what a full-height block
-  stands for, and those three figures are always the real ones. The top never goes above the whole machine in
-  the active mode (100, or 100 x cores in per-core mode): a sample past that is a skew between the two `/proc`
-  reads and is drawn clipped. Example: the samples 1, 6 and 3 give `scale 0-10%`, and the 6 is the tallest
-  column.
-- **First sample is 0.** With no previous sample there is no delta. The same applies to a process that first
-  appears at a later refresh. The screen schedules the second refresh no later than 0.5 s after start, so the
-  column does not sit at zero for a whole interval.
-- **A recycled PID is not the same process.** Samples are matched by PID and start time (`stat` field 22). The
-  same PID with another start time is a new process: its delta starts from zero and its history is reset.
-- **Counters going backwards give 0**, not a huge unsigned number (saturating subtraction).
-- **A failed refresh keeps the previous baseline**, so the next successful one still has something to subtract.
-- **Not clamped.** The two files are read a moment apart, so a busy process can read a fraction of a point
-  above 100 in the default mode; the code shows what the formula gives.
-- **Resolution** is one clock tick of the process. In per-core mode it moves %CPU by 100 / (CLK_TCK x interval
-  in seconds) points: 1 point at 1 s, 5 points at the 0.2 s minimum. In the default mode divide that by the
-  number of cores (0.25 points at 1 s on 4 cores).
+- **Dos muestras.** `Refresh` recuerda, para cada PID, su `utime+stime` y el total del sistema del refresco
+  anterior. El total es la suma de las ocho columnas de la línea `cpu` (user, nice, system, idle, iowait, irq,
+  softirq, steal; guest se ignora porque el kernel ya lo cuenta dentro de user).
+- **Un valor canónico.** `monitor.CPUPercent` devuelve la fórmula anterior y nada más; el ring buffer del historial,
+  el orden y toda comparación usan ese valor. El modo de visualización descrito más abajo solo cambia cómo lo dibuja
+  la pantalla, así que cambiarlo nunca reordena la tabla ni reescribe el historial.
+- **Modo por núcleo (`I`).** Con `I` (Shift+i) se ve lo que `top` muestra por defecto, su modo Irix: la misma cifra
+  multiplicada por el número de núcleos (`monitor.PerCore`), de modo que 100 significa un núcleo al máximo y un
+  proceso multihilo puede superarlo (hasta 100 x núcleos). El mismo ejemplo da 100 / 400 x 100 x 4 = 100%. `top`
+  tiene el mismo interruptor en Shift+I: con el modo Irix activado es por núcleo; desactivado (llamado modo Solaris)
+  es la fracción de toda la máquina. Al pulsar `I` de nuevo se vuelve a la fórmula del enunciado. La pill del
+  encabezado dice `cpu machine` o `cpu per-core`, un aviso de una línea explica qué significa 100, y `-cpu-mode core`
+  arranca en modo por núcleo. El modo se aplica a la tabla, el árbol, la línea de CPU de la vista de detalle y su
+  gráfico de historial; en una máquina con 1 núcleo los dos modos son iguales.
+- **Escala del gráfico de historial.** La vista de detalle dibuja las últimas 60 muestras como un gráfico de barras
+  de una línea. Su tope es la mayor muestra redondeada hacia arriba a un paso de 1, 2, 5, 10, 20, 50, 100, 200,
+  500... (1, 2 o 5 veces una potencia de diez), con un mínimo de 1%: un proceso ligero llena el gráfico, uno inactivo
+  se queda en el bloque más bajo en lugar de amplificar el ruido de los contadores. La etiqueta `scale 0-10%` junto
+  a min, avg y max indica qué representa un bloque de altura completa, y esas tres cifras son siempre las reales.
+  El tope nunca supera la máquina completa en el modo activo (100, o 100 x núcleos en modo por núcleo): una muestra
+  por encima de eso es una desviación entre las dos lecturas de `/proc` y se dibuja recortada. Ejemplo: las muestras
+  1, 6 y 3 dan `scale 0-10%`, y el 6 es la columna más alta.
+- **La primera muestra es 0.** Sin una muestra previa no hay delta. Lo mismo vale para un proceso que aparece por
+  primera vez en un refresco posterior. La pantalla programa el segundo refresco a más tardar 0.5 s después del
+  arranque, para que la columna no se quede en cero durante todo un intervalo.
+- **Un PID reciclado no es el mismo proceso.** Las muestras se emparejan por PID y hora de inicio (campo 22 de
+  `stat`). El mismo PID con otra hora de inicio es un proceso nuevo: su delta parte de cero y su historial se
+  reinicia.
+- **Los contadores que retroceden dan 0**, no un número enorme sin signo (resta saturada).
+- **Un refresco fallido conserva la línea base anterior**, de modo que el siguiente refresco exitoso todavía tiene
+  algo que restar.
+- **Sin recorte.** Los dos archivos se leen con un instante de diferencia, así que un proceso muy ocupado puede
+  mostrar una fracción de punto por encima de 100 en el modo por defecto; el código muestra lo que da la fórmula.
+- **La resolución** es un tick de reloj del proceso. En modo por núcleo mueve el %CPU en 100 / (CLK_TCK x intervalo
+  en segundos) puntos: 1 punto a 1 s, 5 puntos en el mínimo de 0.2 s. En el modo por defecto se divide eso entre el
+  número de núcleos (0.25 puntos a 1 s con 4 núcleos).
 
-## Acting on processes
+## Actuar sobre procesos
 
-All actions go through `internal/control`, which calls `syscall.Kill`, `syscall.Getpriority` and
-`syscall.Setpriority`. Numbers below are for Linux on x86-64 and arm64.
+Todas las acciones pasan por `internal/control`, que llama a `syscall.Kill`, `syscall.Getpriority` y
+`syscall.Setpriority`. Los números de abajo son para Linux en x86-64 y arm64.
 
-| Key | Function | Signal | Effect | Can the process prevent it? |
+| Tecla | Función | Señal | Efecto | ¿Puede el proceso impedirlo? |
 |---|---|---|---|---|
-| `x` | `Terminate` | SIGTERM (15) | Asks the process to exit; it can clean up first | Yes: it can handle or ignore it |
-| `X` | `Kill` | SIGKILL (9) | The kernel ends the process; nothing runs in it | No |
-| `s` | `Suspend` | SIGSTOP (19) | Stops the process; it shows state T | No: cannot be caught, blocked or ignored |
-| `r` | `Resume` | SIGCONT (18) | Continues a stopped process | A handler may run, but the process continues anyway |
+| `x` | `Terminate` | SIGTERM (15) | Le pide al proceso que termine; puede limpiar antes | Sí: puede manejarla o ignorarla |
+| `X` | `Kill` | SIGKILL (9) | El kernel termina el proceso; no se ejecuta nada en él | No |
+| `s` | `Suspend` | SIGSTOP (19) | Detiene el proceso; se muestra en estado T | No: no se puede capturar, bloquear ni ignorar |
+| `r` | `Resume` | SIGCONT (18) | Continúa un proceso detenido | Puede ejecutarse un handler, pero el proceso continúa de todos modos |
 
-**Priority.** `n` changes the nice value, from -20 (highest priority) to 19 (lowest). The owner can raise the
-value; lowering it needs root or `CAP_SYS_NICE` (the kernel also allows it within the target's `RLIMIT_NICE`).
-On Linux the nice value belongs to a single thread, so `getpriority`/`setpriority` with a PID act on the main
-thread, the one `/proc/[pid]/stat` reports.
+**Prioridad.** `n` cambia el valor nice, de -20 (mayor prioridad) a 19 (menor). El propietario puede subir el
+valor; bajarlo requiere root o `CAP_SYS_NICE` (el kernel también lo permite dentro del `RLIMIT_NICE` del objetivo).
+En Linux el valor nice pertenece a un solo hilo, así que `getpriority`/`setpriority` con un PID actúan sobre el hilo
+principal, el que reporta `/proc/[pid]/stat`.
 
-**The `20 - nice` detail.** The raw `getpriority` system call returns `20 - nice` (1 to 40), so that -1 never
-looks like an error. glibc converts it back; Go's `syscall` package does not, so `control.Priority` returns
-`20 - raw`. Nice 10 is the fixed point of that formula, which is why the round-trip test also uses 5 and 15.
+**El detalle de `20 - nice`.** La llamada al sistema `getpriority` cruda devuelve `20 - nice` (1 a 40), para que -1
+nunca parezca un error. glibc lo convierte de vuelta; el paquete `syscall` de Go no, así que `control.Priority`
+devuelve `20 - raw`. Nice 10 es el punto fijo de esa fórmula, por eso la prueba de ida y vuelta (round-trip) usa
+también 5 y 15.
 
-**Safety rails**
+**Salvaguardas**
 
-1. `control` rejects `pid <= 0` before any system call: `kill(0, sig)` signals the caller's whole process group
-   and `kill(-1, sig)` every process the caller may signal.
-2. The screen refuses to act on procmon's own PID (`WithSelfPID`, default `os.Getpid()`). It checks when the
-   key is pressed and again right before the signal or `setpriority`.
-3. The target (PID, start time, name) is captured when the action starts, so a refresh under an open question
-   cannot redirect the answer. Right before every signal or `setpriority` the screen calls `Monitor.Verify`,
-   which re-reads `/proc/[pid]/stat` and compares the start time. If the process is gone or the PID now
-   belongs to another process, nothing is sent and the message says "process N no longer exists".
-4. Every signal key asks first, naming the action, the PID and the command. Force kill has its own wording:
-   it is drawn in the alarm colour and says "the process cannot clean up". While a question is open, only `y`,
-   `n` and `Esc` answer it. On a narrow line the explanation is cut first, then the end of the name; the PID
-   and the answer stay (force kill's "Press y to confirm, n to cancel" becomes `y/n` below 60 columns).
-5. Text from `/proc` is sanitised before it is drawn: control characters (an ESC would start a terminal
-   sequence) and invalid UTF-8 become `?`.
+1. `control` rechaza `pid <= 0` antes de cualquier llamada al sistema: `kill(0, sig)` envía la señal a todo el grupo
+   de procesos del llamador y `kill(-1, sig)` a todos los procesos a los que el llamador puede enviarla.
+2. La pantalla se niega a actuar sobre el PID del propio procmon (`WithSelfPID`, por defecto `os.Getpid()`). Lo
+   comprueba al pulsar la tecla y de nuevo justo antes de la señal o de `setpriority`.
+3. El objetivo (PID, hora de inicio, nombre) se captura cuando comienza la acción, de modo que un refresco con una
+   pregunta abierta no puede redirigir la respuesta. Justo antes de cada señal o `setpriority` la pantalla llama a
+   `Monitor.Verify`, que vuelve a leer `/proc/[pid]/stat` y compara la hora de inicio. Si el proceso ya no existe o
+   el PID ahora pertenece a otro proceso, no se envía nada y el mensaje dice "process N no longer exists" (el
+   proceso N ya no existe).
+4. Toda tecla que envía una señal pregunta primero, nombrando la acción, el PID y el comando. El kill forzado tiene
+   su propio texto: se dibuja en el color de alarma y dice "the process cannot clean up" (el proceso no puede
+   limpiar). Mientras hay una pregunta abierta, solo `y`, `n` y `Esc` la responden. En una línea estrecha se recorta
+   primero la explicación y luego el final del nombre; el PID y la respuesta se conservan (el "Press y to confirm, n
+   to cancel" del kill forzado pasa a `y/n` por debajo de 60 columnas).
+5. El texto que viene de `/proc` se sanea antes de dibujarse: los caracteres de control (un ESC iniciaría una
+   secuencia de terminal) y el UTF-8 inválido se convierten en `?`.
 
-**What `Verify` does not close.** It narrows the stale-row window from "up to one refresh interval" to the few
-microseconds between its read of `stat` and the `kill(2)` call. It cannot close it: the PID could still be
-recycled in between. Only a pidfd (`pidfd_open(2)` plus `pidfd_send_signal(2)`), which refers to one specific
-process, would.
+**Lo que `Verify` no cierra.** Reduce la ventana de la fila desactualizada (stale) de "hasta un intervalo de
+refresco" a los pocos microsegundos entre su lectura de `stat` y la llamada a `kill(2)`. No puede cerrarla: el PID
+todavía podría reciclarse entre ambos momentos. Solo un pidfd (`pidfd_open(2)` más `pidfd_send_signal(2)`), que se
+refiere a un proceso específico, lo lograría.
 
-**Messages.** Every action reports what happened, naming the action, the PID and the command, for example
-`SIGSTOP sent to 4321 (firefox) — stopped` or `nice of 4321 (firefox) set from 0 to 5`. Failures never crash the
-program: `process 4321 no longer exists`, `permission denied: only root or the owner of 4321 (firefox) can send
+**Mensajes.** Toda acción informa qué ocurrió, nombrando la acción, el PID y el comando, por ejemplo
+`SIGSTOP sent to 4321 (firefox) — stopped` o `nice of 4321 (firefox) set from 0 to 5`. Los fallos nunca hacen caer
+el programa: `process 4321 no longer exists`, `permission denied: only root or the owner of 4321 (firefox) can send
 SIGSTOP`, `permission denied: lowering nice needs root (CAP_SYS_NICE); only the owner can raise it`, `invalid
-nice "abc": not a whole number`.
+nice "abc": not a whole number`. (La interfaz está en inglés; en orden, los cuatro mensajes dicen: el proceso ya no
+existe; permiso denegado para enviar la señal; permiso denegado para bajar el nice; nice inválido, no es un número
+entero.)
 
-## Requirement checklist
+## Requisitos del enunciado
 
-| Req | What | Where |
+| Req | Qué | Dónde |
 |---|---|---|
-| 1 | Table: PID, PPID, user, state, %CPU, %MEM, RSS, threads, priority, CPU time, command | `internal/procfs/process.go` (parse), `internal/monitor/monitor.go` (`readProcess`), `internal/tui/table.go` |
-| 2 | Summary: total, running, stopped, zombies, load, memory | `internal/procfs/system.go`, `internal/monitor/monitor.go` (`summarize`), `internal/tui/header.go` |
-| 3 | %CPU by delta, coherent with the system | `internal/monitor/cpu.go` (`CPUPercent`, `PerCore`), `internal/monitor/monitor.go` (`Refresh`), display mode in `internal/tui/cpumode.go` |
-| 4 | Sort by CPU and by memory | `internal/monitor/sort.go`; keys `c`, `m`, `p` in `internal/tui/keys.go` |
-| 5 | Process tree | `internal/monitor/tree.go` (`BuildTree`, `WithAncestors`); `t` in `internal/tui/keys.go`, `rebuild` in `internal/tui/model.go`, connectors in `internal/tui/table.go` |
-| 6 | Thread view with per-thread state | `Threads` in `internal/procfs/process.go`, `internal/monitor/threads.go`, `internal/tui/detail.go` |
-| 7 | CPU history per process | `internal/monitor/history.go`; sparkline in `internal/tui/chart.go`, shown by `internal/tui/detail.go` |
-| 8 | Highlight zombies (Z) and I/O-blocked (D) | `internal/tui/style.go` (`state`), `styleRow` and `paint` in `internal/tui/table.go`, counts in `internal/tui/header.go` |
-| 9 | Terminate, force kill (separate confirmation), suspend, resume | `internal/control/control.go`; `internal/tui/actions.go` |
-| 10 | Show and change priority | `Priority` and `SetPriority` in `internal/control/control.go`; PRI and NI columns; `n` in `internal/tui/actions.go` |
-| 11 | Full-screen TUI, real size, resize, no flicker, header/table/help line, terminal restored | `internal/tui/view.go` (alternate screen, layout, exact-size frames), `internal/tui/footer.go`, `cmd/procmon/main.go` |
-| 12 | Refresh interval configurable from the UI | `internal/tui/interval.go`; keys `i`, `+`, `-`; flag `-interval` |
-| 13 | Hot keys: quit, interval, sort, filter, tree, threads, act, priority (and `I`, the %CPU mode) | `internal/tui/keys.go`, help line in `internal/tui/footer.go` |
-| 14 | Confirmation message naming process and action | `confirmLine` and the notices in `internal/tui/actions.go` |
-| 15 | Clear message, no crash, when the process is gone or permission is denied | `internal/oserr/oserr.go`; `Classify` calls in `internal/procfs` and `internal/control`; `failure` in `internal/tui/actions.go`; `Refresh` skips processes that exit while being read |
+| 1 | Tabla: PID, PPID, usuario, estado, %CPU, %MEM, RSS, hilos, prioridad, tiempo de CPU, comando | `internal/procfs/process.go` (análisis), `internal/monitor/monitor.go` (`readProcess`), `internal/tui/table.go` |
+| 2 | Resumen: total, en ejecución, detenidos, zombis, carga, memoria | `internal/procfs/system.go`, `internal/monitor/monitor.go` (`summarize`), `internal/tui/header.go` |
+| 3 | %CPU por delta, coherente con el sistema | `internal/monitor/cpu.go` (`CPUPercent`, `PerCore`), `internal/monitor/monitor.go` (`Refresh`), modo de visualización en `internal/tui/cpumode.go` |
+| 4 | Ordenar por CPU y por memoria | `internal/monitor/sort.go`; teclas `c`, `m`, `p` en `internal/tui/keys.go` |
+| 5 | Árbol de procesos | `internal/monitor/tree.go` (`BuildTree`, `WithAncestors`); `t` en `internal/tui/keys.go`, `rebuild` en `internal/tui/model.go`, conectores en `internal/tui/table.go` |
+| 6 | Vista de hilos con el estado de cada hilo | `Threads` en `internal/procfs/process.go`, `internal/monitor/threads.go`, `internal/tui/detail.go` |
+| 7 | Historial de CPU por proceso | `internal/monitor/history.go`; sparkline en `internal/tui/chart.go`, mostrado por `internal/tui/detail.go` |
+| 8 | Resaltar zombis (Z) y procesos bloqueados por E/S (D) | `internal/tui/style.go` (`state`), `styleRow` y `paint` en `internal/tui/table.go`, contadores en `internal/tui/header.go` |
+| 9 | Terminar, matar a la fuerza (confirmación aparte), suspender, reanudar | `internal/control/control.go`; `internal/tui/actions.go` |
+| 10 | Mostrar y cambiar la prioridad | `Priority` y `SetPriority` en `internal/control/control.go`; columnas PRI y NI; `n` en `internal/tui/actions.go` |
+| 11 | TUI a pantalla completa, tamaño real, redimensionado, sin parpadeo, encabezado/tabla/línea de ayuda, terminal restaurada | `internal/tui/view.go` (pantalla alternativa, diseño, frames de tamaño exacto), `internal/tui/footer.go`, `cmd/procmon/main.go` |
+| 12 | Intervalo de refresco configurable desde la interfaz | `internal/tui/interval.go`; teclas `i`, `+`, `-`; flag `-interval` |
+| 13 | Teclas de acceso rápido: salir, intervalo, orden, filtro, árbol, hilos, actuar, prioridad (y `I`, el modo de %CPU) | `internal/tui/keys.go`, línea de ayuda en `internal/tui/footer.go` |
+| 14 | Mensaje de confirmación que nombra el proceso y la acción | `confirmLine` y los avisos (notices) en `internal/tui/actions.go` |
+| 15 | Mensaje claro, sin caída del programa, cuando el proceso ya no existe o se deniega el permiso | `internal/oserr/oserr.go`; llamadas a `Classify` en `internal/procfs` y `internal/control`; `failure` en `internal/tui/actions.go`; `Refresh` omite los procesos que terminan mientras se leen |
 
 ## Testing
 
