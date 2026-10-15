@@ -1,79 +1,82 @@
 # procmon
 
-A full-screen process monitor for the terminal (in the spirit of `top` and `btop`), written in Go for the
-Operating Systems course (URU, 2026C, Project 1). It lists every process with its CPU, memory, state and
-priority, summarises the machine, shows a parent/child tree, the threads and the CPU history of one
-process, and can terminate, kill, suspend, resume and renice processes.
+Un monitor de procesos a pantalla completa para la terminal (al estilo de `top` y `btop`), escrito en Go para la
+asignatura de Sistemas Operativos (URU, 2026C, Proyecto 1). Lista todos los procesos con su CPU, memoria, estado y
+prioridad, resume el estado de la máquina, muestra un árbol padre/hijo, los hilos y el historial de CPU de un
+proceso, y permite terminar, matar, suspender, reanudar y cambiar la prioridad (renice) de los procesos.
 
-Constraints from the project statement, and how the code honours them:
+Restricciones del enunciado del proyecto, y cómo las cumple el código:
 
-| Constraint | How |
+| Restricción | Cómo |
 |---|---|
-| Process data comes from `/proc` | `internal/procfs` parses `/proc/[pid]/{stat,status,cmdline}`, `/proc/[pid]/task/*/stat` and `/proc/{stat,meminfo,loadavg,uptime,self/auxv}`. One extra read: `/etc/passwd`, only to turn a UID into a user name (section 5). |
-| No library that lists processes or computes CPU % | `go.mod` requires only UI libraries: Bubble Tea, Lip Gloss and `x/ansi` (text width and truncation). No gopsutil, no procfs package. |
-| No external programs | No `os/exec` in non-test code. Signals use `kill(2)`, priority uses `getpriority(2)` and `setpriority(2)`, all through package `syscall`. |
-| %CPU is computed by the program | `internal/monitor/cpu.go`, from two samples of the kernel counters (section 6). |
+| Los datos de los procesos salen de `/proc` | `internal/procfs` analiza `/proc/[pid]/{stat,status,cmdline}`, `/proc/[pid]/task/*/stat` y `/proc/{stat,meminfo,loadavg,uptime,self/auxv}`. Una lectura adicional: `/etc/passwd`, solo para convertir un UID en un nombre de usuario (sección 5). |
+| Ninguna biblioteca que liste procesos o calcule el % de CPU | `go.mod` solo requiere bibliotecas de interfaz: Bubble Tea, Lip Gloss y `x/ansi` (ancho y truncado de texto). Ni gopsutil ni un paquete procfs. |
+| Sin programas externos | No hay `os/exec` en el código que no es de prueba. Las señales usan `kill(2)`, la prioridad usa `getpriority(2)` y `setpriority(2)`, todo mediante el paquete `syscall`. |
+| El %CPU lo calcula el programa | `internal/monitor/cpu.go`, a partir de dos muestras de los contadores del kernel (sección 6). |
 
-The guard for the third row prints nothing:
+La verificación de la tercera fila no imprime nada:
 
 ```sh
 rg -n 'os/exec' --glob '*.go' --glob '!*_test.go' .
 ```
 
-The only use of `os/exec` in the repository is a test in `internal/control` that starts a `sleep` child to
-have a harmless process to signal.
+El único uso de `os/exec` en el repositorio es una prueba en `internal/control` que inicia un proceso hijo `sleep`
+para tener un proceso inofensivo al que enviarle señales.
 
-## Build and run
+## Compilar y ejecutar
 
 ```sh
 go build -o procmon ./cmd/procmon
-./procmon                    # refresh every 1 s
-./procmon -interval 500ms    # any value from 200ms to 60s
-./procmon -plain             # square pill ends, for fonts without Nerd Font glyphs
-./procmon -cpu-mode core     # start with %CPU per core, like top (the I key switches it while running)
+./procmon                    # refresca cada 1 s
+./procmon -interval 500ms    # cualquier valor de 200ms a 60s
+./procmon -plain             # extremos de pill cuadrados, para fuentes sin glifos de Nerd Font
+./procmon -cpu-mode core     # arranca con %CPU por núcleo, como top (la tecla I lo cambia en ejecución)
 ```
 
-- Go 1.27.1 (the `go` line of `go.mod`). Linux only: it reads `/proc`.
-- A normal user can see and read most processes. Acting on processes of other users needs root
-  (`CAP_KILL` for signals, `CAP_SYS_NICE` to lower a nice value).
-- `q` or Ctrl+C leaves the alternate screen and restores the terminal. Bad flags exit with status 2.
+- Go 1.27.1 (la línea `go` de `go.mod`). Solo Linux: lee `/proc`.
+- Un usuario normal puede ver y leer la mayoría de los procesos. Actuar sobre procesos de otros usuarios requiere
+  root (`CAP_KILL` para las señales, `CAP_SYS_NICE` para bajar un valor de nice).
+- `q` o Ctrl+C salen de la pantalla alternativa y restauran la terminal. Los flags incorrectos terminan con código
+  de salida 2.
 
-## Keymap
+## Atajos de teclado
 
-Hot keys need no Enter; the ones that send a signal ask `y`/`n` first. The main ones are also listed in the
-help line at the bottom of the screen (it shows as many as fit).
+Las teclas de acceso rápido no necesitan Enter; las que envían una señal preguntan `y`/`n` antes. Las principales
+también aparecen en la línea de ayuda al pie de la pantalla (muestra tantas como caben).
 
-| Key | Where | Action |
+| Tecla | Dónde | Acción |
 |---|---|---|
-| `q` | table, detail | Quit |
-| `Ctrl+C` | everywhere, also while typing or confirming | Quit |
-| `Up`/`k`, `Down`/`j` | table | Move the selection |
-| `PgUp`, `PgDn` | table | Move one page |
-| `Home`, `End` | table | First row (the selection follows the top row again), last row |
-| `Enter` | table | Open the detail view of the selected process |
-| `c`, `m`, `p` | table | Sort by CPU (default), by memory, by PID |
-| `t` | table | Switch between the flat table and the process tree |
-| `/` | table | Filter by name: command line or process name, case-insensitive; an empty filter clears it |
-| `Esc`, `Enter` | detail | Back to the table |
-| `Up`/`k`, `Down`/`j`, `PgUp`, `PgDn`, `Home`, `End` | detail | Scroll the thread list |
-| `x` | table, detail | Terminate (SIGTERM), asks `y`/`n` first |
-| `X` | table, detail | Force kill (SIGKILL), asks its own question |
-| `s`, `r` | table, detail | Suspend (SIGSTOP), resume (SIGCONT), each asks `y`/`n` first |
-| `n` | table, detail | Change nice: shows the current value, asks for a whole number from -20 to 19 |
-| `I` (Shift+i) | table, detail | Switch %CPU between the share of the whole machine (default) and per core, like `top`'s Shift+I; the header pill `cpu machine` / `cpu per-core` shows which one is active |
-| `+`, `-` | table, detail | Longer, shorter refresh interval (steps: 0.5, 1, 2, 3, 5, 10 s) |
-| `i` | table, detail | Type a refresh interval in seconds (0.2 to 60) |
+| `q` | tabla, detalle | Salir |
+| `Ctrl+C` | en todas partes, también al escribir o confirmar | Salir |
+| `Up`/`k`, `Down`/`j` | tabla | Mover la selección |
+| `PgUp`, `PgDn` | tabla | Mover una página |
+| `Home`, `End` | tabla | Primera fila (la selección vuelve a seguir la fila superior), última fila |
+| `Enter` | tabla | Abrir la vista de detalle del proceso seleccionado |
+| `c`, `m`, `p` | tabla | Ordenar por CPU (predeterminado), por memoria, por PID |
+| `t` | tabla | Alternar entre la tabla plana y el árbol de procesos |
+| `/` | tabla | Filtrar por nombre: línea de comandos o nombre del proceso, sin distinguir mayúsculas; un filtro vacío lo elimina |
+| `Esc`, `Enter` | detalle | Volver a la tabla |
+| `Up`/`k`, `Down`/`j`, `PgUp`, `PgDn`, `Home`, `End` | detalle | Desplazar la lista de hilos |
+| `x` | tabla, detalle | Terminar (SIGTERM), pregunta `y`/`n` antes |
+| `X` | tabla, detalle | Matar a la fuerza (SIGKILL), con su propia pregunta |
+| `s`, `r` | tabla, detalle | Suspender (SIGSTOP), reanudar (SIGCONT), cada una pregunta `y`/`n` antes |
+| `n` | tabla, detalle | Cambiar nice: muestra el valor actual, pide un número entero de -20 a 19 |
+| `I` (Shift+i) | tabla, detalle | Alternar el %CPU entre la fracción de toda la máquina (predeterminado) y por núcleo, como el Shift+I de `top`; la pill del encabezado `cpu machine` / `cpu per-core` indica cuál está activo |
+| `+`, `-` | tabla, detalle | Intervalo de refresco más largo, más corto (pasos: 0.5, 1, 2, 3, 5, 10 s) |
+| `i` | tabla, detalle | Escribir un intervalo de refresco en segundos (0.2 a 60) |
 
-While a line is being typed (filter, interval, nice): `Enter` applies, `Esc` cancels, `Backspace` deletes,
-`Ctrl+U` clears the line, pasted text is inserted, and the hot keys are off. While a confirmation is open,
-`y` confirms, `n` or `Esc` cancels, and every other key is ignored. Actions apply to the selected row, or to the
-open process in the detail view.
+Mientras se escribe una línea (filtro, intervalo, nice): `Enter` aplica, `Esc` cancela, `Backspace` borra, `Ctrl+U`
+limpia la línea, el texto pegado se inserta y las teclas de acceso rápido quedan desactivadas. Mientras hay una
+confirmación abierta, `y` confirma, `n` o `Esc` cancelan y cualquier otra tecla se ignora. Las acciones se aplican a
+la fila seleccionada, o al proceso abierto en la vista de detalle.
 
-The screen has three parts: a header box (task counts, load, uptime, memory, swap; the refresh interval, sort
-key, %CPU mode, view and filter appear as pills in its border), the process table or detail box, and one status/help line.
-It uses rounded boxes from 40x12 up and a compact layout below that. Rows in state Z (red), D (amber) and
-T/t (violet) are highlighted, and the header counts use the same colours. The last row always belongs to that
-status/help line, even in a terminal one or two rows tall, so a question or message is never hidden.
+La pantalla tiene tres partes: un recuadro de encabezado (cantidad de tareas, carga, uptime, memoria, swap; el
+intervalo de refresco, el criterio de orden, el modo de %CPU, la vista y el filtro aparecen como pills en su borde),
+el recuadro de la tabla de procesos o del detalle, y una línea de estado/ayuda.
+Usa recuadros redondeados desde 40x12 y un diseño compacto por debajo de ese tamaño. Las filas en estado Z (rojo), D
+(ámbar) y T/t (violeta) se resaltan, y los contadores del encabezado usan los mismos colores. La última fila siempre
+pertenece a esa línea de estado/ayuda, incluso en una terminal de una o dos filas de alto, de modo que una pregunta
+o un mensaje nunca queda oculto.
 
 ## Architecture
 
