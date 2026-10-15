@@ -23,6 +23,11 @@ func (c cpuMode) name() string {
 	return "machine"
 }
 
+// WithPerCoreCPU starts in the per-core mode instead of the course formula.
+func WithPerCoreCPU() Option {
+	return func(m *Model) { m.cpu = cpuPerCore }
+}
+
 // toggleCPUMode switches between the two modes and says what 100 means now.
 func (m *Model) toggleCPUMode() {
 	if m.cpu == cpuMachine {
@@ -55,7 +60,11 @@ func (m *Model) cpuSeries(shares []float64) []float64 {
 	return out
 }
 
-// cpuText writes a %CPU figure.
+// cpuText writes a %CPU figure. Past 1000 the decimal goes, so that a big
+// machine in per-core mode still fits the six columns of the table.
 func cpuText(v float64) string {
+	if v >= 1000 {
+		return fmt.Sprintf("%.0f", v)
+	}
 	return fmt.Sprintf("%.1f", v)
 }

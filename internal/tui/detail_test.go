@@ -543,6 +543,46 @@ func scaleSetup(history []float64, cores int, opts ...Option) (*Model, *fakeMoni
 	return m, mon
 }
 
+func TestDetailChartAutoscales(t *testing.T) {
+	const inner = 120 - 4
+	tests := []struct {
+		name     string
+		history  []float64
+		cores    int
+		perCore  bool
+		wantTop  float64
+		wantText []string
+	}{
+		{"idle process keeps the floor", []float64{0, 0, 0}, 4, false, 1, []string{"scale 0-1%", "max 0.0%"}},
+		{"a light process fills the chart", []float64{1, 6, 3}, 4, false, 10, []string{"scale 0-10%", "max 6.0%"}},
+		{"noise below 1% is not amplified", []float64{0, 0.2, 0.1}, 4, false, 1, []string{"scale 0-1%"}},
+		{"a busy process", []float64{20, 40, 60}, 4, false, 100, []string{"scale 0-100%"}},
+		{"skew above the whole machine is clipped", []float64{50, 105}, 4, false, 100, []string{"scale 0-100%", "max 105.0%"}},
+		{"per-core goes past 100", []float64{30, 60}, 16, true, 1000, []string{"scale 0-1000%", "max 960.0%"}},
+		{"per-core of a light process", []float64{10, 20}, 4, true, 100, []string{"scale 0-100%", "max 80.0%"}},
+		{"per-core never above all the cores", []float64{0, 99}, 4, true, 400, []string{"scale 0-400%"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var opts []Option
+			if tt.perCore {
+				opts = append(opts, WithPerCoreCPU())
+			}
+			m, _ := scaleSetup(tt.history, tt.cores, opts...)
+			out := screenText(m)
+			for _, want := range tt.wantText {
+				if !strings.Contains(out, want) {
+					t.Errorf("the chart is missing %q:\n%s", want, out)
+				}
+			}
+			shown := m.cpuSeries(tt.history)
+			if got, want := sparkRow(m), sparkline(shown, inner, tt.wantTop); got != want {
+				t.Errorf("sparkline =\n%q\nwant it drawn against a top of %v:\n%q", got, tt.wantTop, want)
+			}
+		})
+	}
+}
+
 func TestDetailChartOfAnIdleProcessIsFlat(t *testing.T) {
 	m, _ := scaleSetup([]float64{0, 0, 0}, 4)
 	if row := sparkRow(m); row == "" || strings.Trim(row, "▁") != "" {

@@ -203,3 +203,59 @@ func TestHelpLineListsTheCPUModeKey(t *testing.T) {
 		t.Errorf("the detail help line is missing the key: %q", help)
 	}
 }
+
+func TestPerCoreCPUOptionStartsInPerCoreMode(t *testing.T) {
+	m, _ := cpuSetup(WithPerCoreCPU())
+	if got := cpuCellOf(t, m, "burner"); got != "100.0" {
+		t.Errorf("%%CPU = %q, want 100.0 from the start", got)
+	}
+	if out := screenText(m); !strings.Contains(out, "cpu per-core") {
+		t.Errorf("the header must say per-core:\n%s", out)
+	}
+	press(m, "I")
+	if got := cpuCellOf(t, m, "burner"); got != "25.0" {
+		t.Errorf("%%CPU = %q after I, want to go back to 25.0", got)
+	}
+}
+
+func TestPerCoreWithoutACoreCountChangesNothing(t *testing.T) {
+	snap := snapshotOf(proc(200, "burner", 25))
+	snap.Cores = 0
+	m := New(&fakeMonitor{}, &fakeControl{})
+	m.Update(windowSize(120, 35))
+	m.Update(refreshedMsg{snap: snap})
+	press(m, "I")
+	if got := cpuCellOf(t, m, "burner"); got != "25.0" {
+		t.Errorf("%%CPU = %q, want 25.0: no core count means one core", got)
+	}
+}
+
+func TestCPUFigureStaysInItsColumn(t *testing.T) {
+	tests := []struct {
+		v    float64
+		want string
+	}{
+		{0, "0.0"},
+		{25, "25.0"},
+		{100, "100.0"},
+		{999.94, "999.9"},
+		{1600, "1600"},
+		{12800, "12800"},
+	}
+	for _, tt := range tests {
+		if got := cpuText(tt.v); got != tt.want {
+			t.Errorf("cpuText(%v) = %q, want %q", tt.v, got, tt.want)
+		}
+	}
+
+	// A 128-core machine flat out in per-core mode: 12800, and nothing breaks.
+	snap := snapshotOf(proc(200, "burner", 100))
+	snap.Cores = 128
+	m := New(&fakeMonitor{}, &fakeControl{}, WithPerCoreCPU())
+	m.Update(windowSize(120, 35))
+	m.Update(refreshedMsg{snap: snap})
+	if got := cpuCellOf(t, m, "burner"); got != "12800" {
+		t.Errorf("%%CPU = %q, want 12800", got)
+	}
+	assertFits(t, m, 120, 35)
+}
