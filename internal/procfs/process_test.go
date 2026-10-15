@@ -182,3 +182,37 @@ func TestStatusErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestCmdline(t *testing.T) {
+	tests := []struct {
+		name string
+		fs   FS
+		pid  int
+		want string
+	}{
+		{name: "NUL separated args are joined by spaces", fs: fixtureFS(), pid: 1234,
+			want: "/usr/lib/firefox/firefox --new-window https://example.com"},
+		{name: "kernel thread has an empty cmdline", fs: fixtureFS(), pid: 2, want: ""},
+		{name: "no trailing NUL", pid: 7, want: "a b",
+			fs: tempFS(t, map[string]string{"7/cmdline": "a\x00b"})},
+		{name: "several trailing NULs are trimmed", pid: 7, want: "a b",
+			fs: tempFS(t, map[string]string{"7/cmdline": "a\x00b\x00\x00\x00"})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.fs.Cmdline(tt.pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("Cmdline(%d) = %q, want %q", tt.pid, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("process is gone", func(t *testing.T) {
+		if _, err := fixtureFS().Cmdline(99999); !errors.Is(err, oserr.ErrProcessGone) {
+			t.Fatalf("err = %v, want ErrProcessGone", err)
+		}
+	})
+}

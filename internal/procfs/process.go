@@ -1,6 +1,7 @@
 package procfs
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -159,4 +160,16 @@ func parseStatus(data []byte) (ProcStatus, error) {
 		return ProcStatus{}, fmt.Errorf("malformed status: no Uid line")
 	}
 	return st, nil
+}
+
+// Cmdline returns /proc/[pid]/cmdline with the NUL separators turned into
+// spaces. Kernel threads and zombies have an empty command line; the caller
+// falls back to "[comm]" in that case.
+func (f FS) Cmdline(pid int) (string, error) {
+	data, err := f.readPidFile(pid, "cmdline")
+	if err != nil {
+		return "", err
+	}
+	data = bytes.TrimRight(data, "\x00")
+	return string(bytes.ReplaceAll(data, []byte{0}, []byte{' '})), nil
 }
