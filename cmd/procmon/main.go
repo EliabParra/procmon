@@ -21,6 +21,7 @@ import (
 type config struct {
 	interval time.Duration
 	plain    bool
+	perCore  bool // %CPU per core, like top, instead of the share of the machine
 }
 
 // parseArgs reads the command line; usage and errors go to out.
@@ -29,6 +30,7 @@ func parseArgs(args []string, out io.Writer) (config, error) {
 	fs.SetOutput(out)
 	interval := fs.Duration("interval", tui.DefaultInterval, "refresh interval, e.g. 500ms or 2s")
 	plain := fs.Bool("plain", false, "draw pills with square ends, for fonts without Nerd Font glyphs")
+	cpuMode := fs.String("cpu-mode", "machine", "how %CPU is shown: machine (share of the whole machine, the course formula) or core (per core, like top; I switches it while running)")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -38,7 +40,10 @@ func parseArgs(args []string, out io.Writer) (config, error) {
 	if *interval < tui.MinInterval || *interval > tui.MaxInterval {
 		return config{}, fmt.Errorf("-interval must be between %v and %v, got %v", tui.MinInterval, tui.MaxInterval, *interval)
 	}
-	return config{interval: *interval, plain: *plain}, nil
+	if *cpuMode != "machine" && *cpuMode != "core" {
+		return config{}, fmt.Errorf("-cpu-mode must be machine or core, got %q", *cpuMode)
+	}
+	return config{interval: *interval, plain: *plain, perCore: *cpuMode == "core"}, nil
 }
 
 // controller adapts the functions of package control to the port the screen uses.
@@ -66,6 +71,9 @@ func main() {
 	opts := []tui.Option{tui.WithInterval(cfg.interval)}
 	if cfg.plain {
 		opts = append(opts, tui.WithPlain())
+	}
+	if cfg.perCore {
+		opts = append(opts, tui.WithPerCoreCPU())
 	}
 	model := tui.New(monitor.New(procfs.New()), controller{}, opts...)
 
