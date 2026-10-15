@@ -51,6 +51,7 @@ type Model struct {
 	cursor int               // index in rows of the selected row
 	offset int               // index in rows of the first visible row
 	selPID int               // the selected process; the cursor follows it once picked
+	picked bool              // the user chose a row; until then the top row stays selected
 }
 
 // Option customizes a Model.
@@ -120,6 +121,12 @@ func tickAfter(d time.Duration, gen int) tea.Cmd {
 }
 
 // rebuild recomputes the table from the last snapshot: it sorts the rows.
+//
+// Once the user has picked a row the selection stays on the same process even
+// if the order changed; when that process is gone the cursor stays at the same
+// position, which now holds its neighbour. Before that, the top row stays
+// selected, so the first screen does not highlight a process that sorted
+// itself away.
 func (m *Model) rebuild() {
 	matched := slices.Clone(m.snap.Processes)
 
@@ -128,7 +135,19 @@ func (m *Model) rebuild() {
 
 	m.rows = rows
 
+	if !m.picked {
+		m.cursor = 0
+	} else if i := slices.IndexFunc(rows, func(p monitor.Process) bool { return p.PID == m.selPID }); i >= 0 {
+		m.cursor = i
+	}
 	m.moveTo(m.cursor)
+}
+
+// pick moves the cursor on the user's request: from now on it follows the
+// process it lands on.
+func (m *Model) pick(i int) {
+	m.picked = true
+	m.moveTo(i)
 }
 
 // selected is the PID of the selected row, or 0 when the table is empty.

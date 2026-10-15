@@ -27,17 +27,18 @@ func (m *Model) tableKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	page := max(1, m.layout().tableRows)
 	switch msg.String() {
 	case "up", "k":
-		m.moveTo(m.cursor - 1)
+		m.pick(m.cursor - 1)
 	case "down", "j":
-		m.moveTo(m.cursor + 1)
+		m.pick(m.cursor + 1)
 	case "pgup":
-		m.moveTo(m.cursor - page)
+		m.pick(m.cursor - page)
 	case "pgdown":
-		m.moveTo(m.cursor + page)
+		m.pick(m.cursor + page)
 	case "home":
 		m.moveTo(0)
+		m.picked = false // the top row again, whatever the order becomes
 	case "end":
-		m.moveTo(len(m.rows) - 1)
+		m.pick(len(m.rows) - 1)
 	}
 	return m, nil
 }

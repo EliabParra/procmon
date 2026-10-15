@@ -159,6 +159,74 @@ func TestNavigationKeys(t *testing.T) {
 	}
 }
 
+func TestSelectionFollowsThePIDWhenTheOrderChanges(t *testing.T) {
+	m := loaded(100, 30, proc(10, "alpha", 50), proc(20, "beta", 30), proc(30, "gamma", 10))
+	press(m, "down") // beta
+	if m.selected() != 20 {
+		t.Fatalf("selected PID = %d, want 20", m.selected())
+	}
+
+	// gamma overtakes everybody: beta moves from the second to the third row.
+	m.Update(refreshedMsg{snap: snapshotOf(proc(10, "alpha", 50), proc(20, "beta", 30), proc(30, "gamma", 90))})
+
+	if m.selected() != 20 {
+		t.Errorf("selected PID = %d after reordering, want 20", m.selected())
+	}
+	if m.cursor != 2 {
+		t.Errorf("cursor = %d, want 2 (beta is now third)", m.cursor)
+	}
+}
+
+func TestSelectionStaysOnTheTopRowUntilTheUserPicksAnother(t *testing.T) {
+	// The first refresh has no %CPU yet, so the table starts in PID order.
+	m := loaded(100, 30, proc(10, "alpha", 0), proc(20, "beta", 0), proc(30, "gamma", 0))
+	if m.selected() != 10 {
+		t.Fatalf("selected PID = %d, want 10", m.selected())
+	}
+
+	// Real figures arrive and gamma is the busiest: the top row is still the selected one.
+	m.Update(refreshedMsg{snap: snapshotOf(proc(10, "alpha", 1), proc(20, "beta", 2), proc(30, "gamma", 90))})
+	if m.selected() != 30 || m.cursor != 0 {
+		t.Errorf("selected PID = %d at row %d, want PID 30 at row 0", m.selected(), m.cursor)
+	}
+
+	press(m, "down") // beta
+	m.Update(refreshedMsg{snap: snapshotOf(proc(10, "alpha", 99), proc(20, "beta", 2), proc(30, "gamma", 90))})
+	if m.selected() != 20 {
+		t.Errorf("selected PID = %d, want 20: a picked process is followed", m.selected())
+	}
+}
+
+func TestHomeGoesBackToTheTopRow(t *testing.T) {
+	m := loaded(100, 30, proc(10, "alpha", 50), proc(20, "beta", 30), proc(30, "gamma", 10))
+	press(m, "down", "home")
+
+	m.Update(refreshedMsg{snap: snapshotOf(proc(10, "alpha", 5), proc(20, "beta", 30), proc(30, "gamma", 10))})
+
+	if m.selected() != 20 || m.cursor != 0 {
+		t.Errorf("selected PID = %d at row %d, want the new top row (PID 20)", m.selected(), m.cursor)
+	}
+}
+
+func TestSelectionMovesToANeighbourWhenTheProcessExits(t *testing.T) {
+	m := loaded(100, 30, proc(10, "alpha", 50), proc(20, "beta", 30), proc(30, "gamma", 10))
+	press(m, "down")
+
+	m.Update(refreshedMsg{snap: snapshotOf(proc(10, "alpha", 50), proc(30, "gamma", 10))})
+
+	if m.selected() != 30 {
+		t.Errorf("selected PID = %d, want 30 (the row that took its place)", m.selected())
+	}
+}
+
+func TestSelectionOfAnEmptyListIsHarmless(t *testing.T) {
+	m := loaded(100, 30)
+	press(m, "down", "end", "pgdown", "home", "up")
+	if m.selected() != 0 {
+		t.Errorf("selected PID = %d, want 0 for an empty list", m.selected())
+	}
+}
+
 func TestScrollKeepsTheSelectedRowVisible(t *testing.T) {
 	m := loaded(100, 15, manyProcs(50)...) // 6 process rows
 
