@@ -24,6 +24,7 @@ type action struct {
 // press alone never reaches a process.
 var actions = map[string]action{
 	"x": {signal: "SIGTERM", verb: "terminate", head: "Terminate %s?", why: "It is asked to exit and can clean up.", done: "asked to exit", send: Control.Terminate},
+	"X": {signal: "SIGKILL", verb: "force kill", head: "Force kill %s", why: "— the process cannot clean up.", done: "it cannot be caught or ignored", force: true, send: Control.Kill},
 }
 
 // target is the process an action is about. It is captured when the action
@@ -101,11 +102,18 @@ func (m *Model) confirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// confirmLine is the question in the bottom line.
+// confirmLine is the question in the bottom line. Force kill is worded
+// differently and drawn in the alarm colour, so it cannot be mistaken for
+// terminate.
 func (m *Model) confirmLine(w int) string {
 	a, t := m.pending.act, m.pending.who
 	answer := "y/n"
 	qStyle, aStyle := m.styles.text, m.styles.accent
+	if a.force {
+		qStyle = m.styles.err.Bold(true)
+		aStyle = qStyle
+		answer = "Press y to confirm, n to cancel"
+	}
 	question := fmt.Sprintf(a.head, t) + " " + a.why
 	return qStyle.Render(question) + gap + aStyle.Render(answer)
 }

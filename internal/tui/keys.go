@@ -38,7 +38,7 @@ func (m *Model) normalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.stepInterval(+1)
 	case "-":
 		return m, m.stepInterval(-1)
-	case "x":
+	case "x", "X":
 		m.startAction(msg.String())
 	default:
 		if m.view == viewDetail {

@@ -68,7 +68,7 @@ func TestYesSendsSIGTERMAndTheStatusLineConfirmsIt(t *testing.T) {
 }
 
 func TestAnythingButYesCancels(t *testing.T) {
-	for _, ask := range []string{"x"} {
+	for _, ask := range []string{"x", "X"} {
 		for _, answer := range []string{"n", "N", "esc"} {
 			t.Run(ask+"/"+answer, func(t *testing.T) {
 				m, _, ctl := actionSetup()
@@ -89,7 +89,7 @@ func TestAnythingButYesCancels(t *testing.T) {
 }
 
 func TestOtherKeysLeaveTheQuestionOpen(t *testing.T) {
-	for _, ask := range []string{"x"} {
+	for _, ask := range []string{"x", "X"} {
 		t.Run(ask, func(t *testing.T) {
 			m, _, ctl := actionSetup()
 			press(m, ask)
@@ -112,9 +112,38 @@ func TestOtherKeysLeaveTheQuestionOpen(t *testing.T) {
 	}
 }
 
+func TestForceKillHasItsOwnStrongerConfirmation(t *testing.T) {
+	m, _, ctl := actionSetup()
+	press(m, "X")
+
+	line := footerText(m)
+	for _, want := range []string{"Force kill", "200", "firefox", "cannot clean up", "Press y to confirm"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the force kill question is missing %q: %q", want, line)
+		}
+	}
+	if strings.Contains(line, "Terminate") || strings.Contains(line, "y/n") {
+		t.Errorf("it must not look like the terminate question: %q", line)
+	}
+	if !strings.Contains(rawFooter(m), sgrFg(colError)) {
+		t.Error("the force kill question is drawn in the alarm colour")
+	}
+	if len(ctl.calls) != 0 {
+		t.Fatalf("nothing may be sent before the answer, got %v", ctl.calls)
+	}
+
+	press(m, "y")
+	if !slices.Equal(ctl.calls, []string{"kill 200"}) {
+		t.Errorf("calls = %v, want one kill of 200", ctl.calls)
+	}
+	if got := footerText(m); !strings.Contains(got, "SIGKILL sent to 200 (firefox)") {
+		t.Errorf("the status line must say what happened: %q", got)
+	}
+}
+
 func TestActionsWithNothingSelected(t *testing.T) {
 	m := loaded(100, 30)
-	for _, key := range []string{"x"} {
+	for _, key := range []string{"x", "X"} {
 		press(m, key)
 		if got := footerText(m); !strings.Contains(got, "no process selected") {
 			t.Errorf("%s: message = %q", key, got)
