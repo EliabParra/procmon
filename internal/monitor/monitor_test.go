@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -365,4 +366,40 @@ func TestFailedRefreshKeepsThePreviousBaseline(t *testing.T) {
 	src.tick(200)
 	src.burn(10, 25)
 	near(t, "%CPU", byPID(t, mustRefresh(t, m), 10).CPUPercent, 12.5)
+}
+
+// The adapter that reads the real /proc must work behind the port, and the
+// delta calculation must see a process that is actually burning CPU.
+func TestRefreshOnTheRealProc(t *testing.T) {
+	if _, err := os.Stat("/proc/self/stat"); err != nil {
+		t.Skip("no /proc on this system")
+	}
+	m := New(procfs.New())
+	if _, err := m.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(300 * time.Millisecond); time.Now().Before(deadline); {
+	}
+	snap, err := m.Refresh()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	self := byPID(t, snap, os.Getpid())
+	if self.Command == "" || self.User == "" || self.User == "?" || self.State == 0 {
+		t.Fatalf("own row is incomplete: %+v", self)
+	}
+	if self.CPUPercent <= 0 {
+		t.Fatalf("own CPUPercent = %v after spinning, want > 0", self.CPUPercent)
+	}
+	if self.CPUPercent > 101 { // a share of the whole machine; one point of skew between the two reads
+		t.Fatalf("own CPUPercent = %v exceeds the whole machine", self.CPUPercent)
+	}
+	s := snap.Summary
+	if s.Total != len(snap.Processes) || s.Total == 0 || s.MemTotalKB == 0 || snap.Cores == 0 {
+		t.Fatalf("implausible snapshot: summary %+v cores %d", s, snap.Cores)
+	}
+	if s.Running+s.Sleeping+s.DiskSleep+s.Stopped+s.Zombie+s.Idle > s.Total {
+		t.Fatalf("state counts exceed Total: %+v", s)
+	}
 }
