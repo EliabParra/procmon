@@ -5,8 +5,11 @@ package procfs
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
+
+	"github.com/EliabParra/procmon/internal/oserr"
 )
 
 // defaultRoot is where the kernel mounts the process information pseudo-filesystem.
@@ -63,4 +66,12 @@ func isDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// readPidFile reads Root/<pid>/<name...>. Errors go through oserr.Classify so
+// callers can tell "the process exited" and "not allowed" from other failures.
+func (f FS) readPidFile(pid int, name ...string) ([]byte, error) {
+	parts := append([]string{f.Root, strconv.Itoa(pid)}, name...)
+	data, err := os.ReadFile(filepath.Join(parts...))
+	return data, oserr.Classify(err)
 }
