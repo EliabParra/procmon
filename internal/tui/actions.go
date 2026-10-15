@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/EliabParra/procmon/internal/monitor"
 	"github.com/EliabParra/procmon/internal/oserr"
@@ -215,9 +216,16 @@ func (m *Model) confirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// Sizes that decide what the question line keeps.
+const (
+	wideAnswer = 60 // from this width the force kill answer is spelled out; below it is y/n
+	minWhy     = 8  // columns the explanation needs to be worth showing
+)
+
 // confirmLine is the question in the bottom line. Force kill is worded
 // differently and drawn in the alarm colour, so it cannot be mistaken for
-// terminate.
+// terminate. When the line is short the explanation goes first, then the end of
+// the name; the target's PID and the answer always stay.
 func (m *Model) confirmLine(w int) string {
 	a, t := m.pending.act, m.pending.who
 	answer := "y/n"
@@ -225,8 +233,17 @@ func (m *Model) confirmLine(w int) string {
 	if a.force {
 		qStyle = m.styles.err.Bold(true)
 		aStyle = qStyle
-		answer = "Press y to confirm, n to cancel"
+		if w >= wideAnswer {
+			answer = "Press y to confirm, n to cancel"
+		}
 	}
-	question := fmt.Sprintf(a.head, t) + " " + a.why
+
+	room := max(0, w-ansi.StringWidth(answer)-len(gap))
+	question := fmt.Sprintf(a.head, t)
+	if left := room - ansi.StringWidth(question); left >= minWhy {
+		question += ansi.Truncate(" "+a.why, left, "…")
+	} else {
+		question = ansi.Truncate(question, room, "…")
+	}
 	return qStyle.Render(question) + gap + aStyle.Render(answer)
 }

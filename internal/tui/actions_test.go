@@ -506,6 +506,152 @@ func TestTheNameFallsBackToTheCommand(t *testing.T) {
 	}
 }
 
+func TestQuestionAndMessagesFitEverySize(t *testing.T) {
+	for _, size := range [][2]int{{140, 35}, {80, 24}, {40, 12}, {30, 8}, {20, 5}, {10, 3}, {5, 2}, {1, 1}} {
+		for _, keys := range [][]string{{"x"}, {"X"}, {"s"}, {"r"}, {"x", "y"}, {"s", "y"}, {"x", "n"}} {
+			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], strings.Join(keys, "")), func(t *testing.T) {
+				mon, ctl := &fakeMonitor{}, &fakeControl{}
+				p := proc(200, "/usr/bin/firefox --new-window "+strings.Repeat("x", 200), 5)
+				p.Comm, p.StartTime = "firefox-with-a-long-name", 777
+				m := loadedOpts(mon, ctl, size[0], size[1], []monitor.Process{p})
+				press(m, keys...)
+				assertFits(t, m, size[0], size[1])
+			})
+		}
+	}
+}
+
+func TestTheAnswerStaysVisibleOnANarrowTerminal(t *testing.T) {
+	m, _, _ := actionSetup()
+	m.Update(windowSize(50, 20))
+	press(m, "x")
+	if line := footerText(m); !strings.Contains(line, "y/n") || !strings.HasPrefix(line, "Terminate 200") {
+		t.Errorf("the question must keep its start and the answer, cutting the middle: %q", line)
+	}
+
+	m.Update(windowSize(60, 20))
+	press(m, "esc", "X")
+	if line := footerText(m); !strings.Contains(line, "Press y") {
+		t.Errorf("the answer of the force kill question must stay visible: %q", line)
+	}
+}
+
+func TestTheQuestionKeepsItsTargetOnNarrowTerminals(t *testing.T) {
+	tests := []struct{ key, lead string }{
+		{"x", "Terminate 200 (firefox)"},
+		{"X", "Force kill 200 (firefox)"},
+		{"s", "Suspend 200 (firefox)"},
+		{"r", "Resume 200 (firefox)"},
+	}
+	for _, tt := range tests {
+		for _, w := range []int{40, 50, 60, 120} {
+			t.Run(fmt.Sprintf("%s at %d columns", tt.key, w), func(t *testing.T) {
+				m, _, _ := actionSetup()
+				m.Update(windowSize(w, 20))
+				press(m, tt.key)
+
+				if line := footerText(m); !strings.HasPrefix(line, tt.lead) {
+					t.Errorf("the question must start with its target %q: %q", tt.lead, line)
+				}
+				assertFits(t, m, w, 20)
+			})
+		}
+	}
+}
+
+func TestTheForceKillAnswerShortensBelowSixtyColumns(t *testing.T) {
+	const long = "Press y to confirm, n to cancel"
+	for w, want := range map[int]string{40: "y/n", 59: "y/n", 60: long, 120: long} {
+		t.Run(fmt.Sprintf("%d columns", w), func(t *testing.T) {
+			m, _, _ := actionSetup()
+			m.Update(windowSize(w, 20))
+			press(m, "X")
+
+			line := footerText(m)
+			if !strings.HasSuffix(line, want) {
+				t.Errorf("the answer should be %q: %q", want, line)
+			}
+			if want == "y/n" && strings.Contains(line, "Press") {
+				t.Errorf("the short answer replaces the long one: %q", line)
+			}
+			if !strings.Contains(rawFooter(m), sgrFg(colError)) {
+				t.Error("the force kill question keeps the alarm colour at any width")
+			}
+		})
+	}
+}
+
+// When the explanation would have only a few columns it is left out, not shown
+// as a stub such as "—…".
+func TestTheExplanationIsDroppedBeforeItBecomesAStub(t *testing.T) {
+	m, _, _ := actionSetup()
+	m.Update(windowSize(60, 20))
+	press(m, "X")
+	if line := footerText(m); line != "Force kill 200 (firefox)  Press y to confirm, n to cancel" {
+		t.Errorf("only the target and the answer fit: %q", line)
+	}
+}
+
+func TestALongNameCutsTheNameNeverThePID(t *testing.T) {
+	for _, key := range []string{"x", "X", "s", "r"} {
+		mon, ctl := &fakeMonitor{}, &fakeControl{}
+		p := proc(200, "firefox", 5)
+		p.Comm, p.StartTime = "firefox-with-a-very-long-name", 777
+		m := loadedOpts(mon, ctl, 40, 20, []monitor.Process{p})
+		press(m, key)
+
+		if line := footerText(m); !strings.Contains(line, "200 (firefox") || !strings.HasSuffix(line, "y/n") {
+			t.Errorf("%s: the PID and the start of the name stay, and so does the answer: %q", key, line)
+		}
+		assertFits(t, m, 40, 20)
+	}
+}
+
+// With one or two rows the table has no room, but a question or a message must
+// still be seen while the keys can answer it.
+func TestTheFooterKeepsTheLastRowAtEveryHeight(t *testing.T) {
+	for _, h := range []int{1, 2, 3, 5, 11, 12, 35} {
+		t.Run(fmt.Sprintf("60x%d", h), func(t *testing.T) {
+			m, _, ctl := actionSetup()
+			m.Update(windowSize(60, h))
+
+			press(m, "X")
+			if line := footerText(m); !strings.HasPrefix(line, "Force kill 200 (firefox)") {
+				t.Errorf("the question must be on screen: %q", line)
+			}
+			assertFits(t, m, 60, h)
+
+			press(m, "n")
+			if line := footerText(m); !strings.Contains(line, "cancelled") {
+				t.Errorf("the message must be on screen: %q", line)
+			}
+
+			press(m, "/")
+			typeText(m, "fi")
+			if line := footerText(m); !strings.HasPrefix(line, "/ fi") {
+				t.Errorf("the input line must be on screen: %q", line)
+			}
+			if cur := m.View().Cursor; cur == nil || cur.Y != h-1 {
+				t.Errorf("the cursor belongs on the last row: %+v", cur)
+			}
+			if len(ctl.calls) != 0 {
+				t.Errorf("calls = %v, want none", ctl.calls)
+			}
+		})
+	}
+}
+
+func TestLongMessagesEndInAnEllipsis(t *testing.T) {
+	m, _, ctl := actionSetup()
+	ctl.err = fmt.Errorf("control: %w", oserr.ErrPermission)
+	m.Update(windowSize(60, 20))
+	press(m, "s", "y")
+	got := footerText(m)
+	if !strings.HasSuffix(got, "…") || !strings.HasPrefix(got, "permission denied") {
+		t.Errorf("a message wider than the terminal is cut with an ellipsis: %q", got)
+	}
+}
+
 func TestHelpLineListsTheActionKeys(t *testing.T) {
 	for _, build := range map[string]func() *Model{
 		"table": func() *Model { m, _, _ := actionSetup(); m.Update(windowSize(200, 35)); return m },
