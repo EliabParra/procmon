@@ -261,7 +261,7 @@ func TestSelectedRowIsHighlighted(t *testing.T) {
 		t.Error("only the selected row carries a background")
 	}
 	press(m, "down")
-	for _, l := range strings.Split(m.View().Content, "\n") {
+	for l := range strings.SplitSeq(m.View().Content, "\n") {
 		if strings.Contains(l, "other-one") && !strings.Contains(l, "48;2;") {
 			t.Error("the highlight must move with the selection")
 		}
@@ -305,7 +305,7 @@ func TestHostileTextCannotReachTheTerminal(t *testing.T) {
 	if got.View().Content != want.View().Content {
 		t.Errorf("hostile text changed the output:\n%s\nwant\n%s", got.View().Content, want.View().Content)
 	}
-	for _, l := range strings.Split(got.View().Content, "\n") {
+	for l := range strings.SplitSeq(got.View().Content, "\n") {
 		if strings.Contains(l, "evil") {
 			plain := ansi.Strip(l)
 			if strings.ContainsRune(plain, '\x1b') {

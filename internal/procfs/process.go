@@ -145,7 +145,7 @@ func parseStatus(data []byte) (ProcStatus, error) {
 	var p fieldParser
 	haveUID := false
 
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue

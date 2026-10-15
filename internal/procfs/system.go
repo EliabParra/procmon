@@ -67,7 +67,7 @@ func parseSystemStat(data []byte) (SystemStat, error) {
 	var ss SystemStat
 	haveAggregate := false
 
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 || !strings.HasPrefix(fields[0], "cpu") {
 			continue
@@ -133,7 +133,7 @@ func parseMemInfo(data []byte) (MemInfo, error) {
 	var p fieldParser
 	haveTotal := false
 
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		key, value, ok := strings.Cut(line, ":")
 		fields := strings.Fields(value)
 		if !ok || len(fields) == 0 {

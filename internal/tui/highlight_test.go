@@ -25,7 +25,7 @@ func rgb(c color.Color) string {
 // rawLine returns the styled line of the screen that holds marker.
 func rawLine(t *testing.T, m *Model, marker string) string {
 	t.Helper()
-	for _, l := range strings.Split(m.View().Content, "\n") {
+	for l := range strings.SplitSeq(m.View().Content, "\n") {
 		if strings.Contains(l, marker) {
 			return l
 		}
