@@ -119,6 +119,9 @@ func TestInvalidPIDNeverReachesTheKernel(t *testing.T) {
 	// signal; setpriority(0) would act on the caller. None may ever be issued.
 	actions := map[string]func(pid int) error{
 		"Terminate": Terminate,
+		"Kill":      Kill,
+		"Suspend":   Suspend,
+		"Resume":    Resume,
 	}
 	for name, act := range actions {
 		for _, pid := range []int{0, -1, -4242} {
@@ -142,6 +145,9 @@ func TestSignalsUseTheRightSignal(t *testing.T) {
 		want syscall.Signal
 	}{
 		{"Terminate", Terminate, syscall.SIGTERM},
+		{"Kill", Kill, syscall.SIGKILL},
+		{"Suspend", Suspend, syscall.SIGSTOP},
+		{"Resume", Resume, syscall.SIGCONT},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,4 +172,29 @@ func TestTerminateKillsTheChildWithSIGTERM(t *testing.T) {
 	if err := c.wait(t); !diedBySignal(err, syscall.SIGTERM) {
 		t.Fatalf("Wait = %v, want death by SIGTERM", err)
 	}
+}
+
+func TestKillKillsTheChildWithSIGKILL(t *testing.T) {
+	c := spawnSleep(t)
+	if err := Kill(c.pid); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.wait(t); !diedBySignal(err, syscall.SIGKILL) {
+		t.Fatalf("Wait = %v, want death by SIGKILL", err)
+	}
+}
+
+func TestSuspendAndResume(t *testing.T) {
+	c := spawnSleep(t)
+	waitState(t, c.pid, func(s byte) bool { return s != 'T' }) // starts running or sleeping
+
+	if err := Suspend(c.pid); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, c.pid, func(s byte) bool { return s == 'T' })
+
+	if err := Resume(c.pid); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, c.pid, func(s byte) bool { return s != 'T' })
 }

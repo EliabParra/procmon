@@ -26,6 +26,15 @@ var (
 // The process may handle or ignore it.
 func Terminate(pid int) error { return signal(pid, syscall.SIGTERM) }
 
+// Kill ends the process immediately: kill(2) with SIGKILL, which cannot be caught.
+func Kill(pid int) error { return signal(pid, syscall.SIGKILL) }
+
+// Suspend stops the process: kill(2) with SIGSTOP (state T in /proc).
+func Suspend(pid int) error { return signal(pid, syscall.SIGSTOP) }
+
+// Resume continues a stopped process: kill(2) with SIGCONT.
+func Resume(pid int) error { return signal(pid, syscall.SIGCONT) }
+
 func signal(pid int, sig syscall.Signal) error {
 	if err := checkPID(pid); err != nil {
 		return err
