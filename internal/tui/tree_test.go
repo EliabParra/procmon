@@ -43,8 +43,8 @@ func treeLines(m *Model) []string {
 	for _, l := range screen(m) {
 		cells := []rune(l) // columns are counted in characters, not bytes
 		if start < 0 {
-			if i := strings.Index(l, "COMMAND"); i >= 0 {
-				start = len([]rune(l[:i]))
+			if before, _, found := strings.Cut(l, "COMMAND"); found {
+				start = len([]rune(before))
 			}
 			continue
 		}

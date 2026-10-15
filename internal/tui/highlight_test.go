@@ -34,10 +34,6 @@ func rawLine(t *testing.T, m *Model, marker string) string {
 	return ""
 }
 
-func inState(pid int, command string, state byte) func() (int, string, byte) {
-	return func() (int, string, byte) { return pid, command, state }
-}
-
 func TestRowsAreHighlightedByState(t *testing.T) {
 	zombie := proc(20, "zombie-row", 5)
 	zombie.State = 'Z'

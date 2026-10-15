@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -467,9 +468,14 @@ func TestThreadTitleNeverShowsAnEmptyRange(t *testing.T) {
 			if got == nil {
 				return // no room for rows: the title says so instead
 			}
-			var first, last int
-			fmt.Sscan(got[1], &first)
-			fmt.Sscan(got[2], &last)
+			first, err := strconv.Atoi(got[1])
+			if err != nil {
+				t.Fatalf("first row %q of the range is not a number: %v", got[1], err)
+			}
+			last, err := strconv.Atoi(got[2])
+			if err != nil {
+				t.Fatalf("last row %q of the range is not a number: %v", got[2], err)
+			}
 			if last < first {
 				t.Errorf("the range %s-%s lists no rows", got[1], got[2])
 			}
