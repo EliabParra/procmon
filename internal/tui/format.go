@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -94,4 +95,9 @@ func cell(s string, w int, right bool) string {
 		return pad + s
 	}
 	return s + pad
+}
+
+// formatInterval writes a refresh interval in seconds: 500ms is "0.5s".
+func formatInterval(d time.Duration) string {
+	return strconv.FormatFloat(d.Seconds(), 'f', -1, 64) + "s"
 }

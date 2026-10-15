@@ -2,10 +2,12 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/EliabParra/procmon/internal/monitor"
 	"github.com/EliabParra/procmon/internal/oserr"
@@ -121,12 +123,60 @@ func snapshotOf(procs ...monitor.Process) monitor.Snapshot {
 	}
 }
 
+// manyProcs returns n processes with PIDs 1..n whose %CPU falls as the PID grows.
+func manyProcs(n int) []monitor.Process {
+	procs := make([]monitor.Process, n)
+	for i := range procs {
+		procs[i] = proc(i+1, fmt.Sprintf("cmd-%d --flag", i+1), float64(n-i))
+	}
+	return procs
+}
+
 // loaded returns a model of the given terminal size that already holds procs.
 func loaded(w, h int, procs ...monitor.Process) *Model {
 	m := New(&fakeMonitor{}, &fakeControl{})
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	m.Update(refreshedMsg{snap: snapshotOf(procs...)})
 	return m
+}
+
+// key builds the key press Bubble Tea would deliver for the named key.
+func key(name string) tea.KeyPressMsg {
+	switch name {
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "pgup":
+		return tea.KeyPressMsg{Code: tea.KeyPgUp}
+	case "pgdown":
+		return tea.KeyPressMsg{Code: tea.KeyPgDown}
+	case "home":
+		return tea.KeyPressMsg{Code: tea.KeyHome}
+	case "end":
+		return tea.KeyPressMsg{Code: tea.KeyEnd}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "ctrl+c":
+		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	case "ctrl+u":
+		return tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}
+	}
+	r := []rune(name)
+	return tea.KeyPressMsg{Code: r[0], Text: name}
+}
+
+// press sends the named keys one after the other and returns the last command.
+func press(m *Model, names ...string) tea.Cmd {
+	var cmd tea.Cmd
+	for _, n := range names {
+		_, cmd = m.Update(key(n))
+	}
+	return cmd
 }
 
 // run executes cmd and every command batched inside it, returning the messages.
@@ -145,3 +195,10 @@ func run(cmd tea.Cmd) []tea.Msg {
 	}
 	return []tea.Msg{msg}
 }
+
+// screen returns the rendered lines without styling.
+func screen(m *Model) []string {
+	return strings.Split(ansi.Strip(m.View().Content), "\n")
+}
+
+func screenText(m *Model) string { return strings.Join(screen(m), "\n") }
