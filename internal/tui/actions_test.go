@@ -68,7 +68,7 @@ func TestYesSendsSIGTERMAndTheStatusLineConfirmsIt(t *testing.T) {
 }
 
 func TestAnythingButYesCancels(t *testing.T) {
-	for _, ask := range []string{"x", "X"} {
+	for _, ask := range []string{"x", "X", "s", "r"} {
 		for _, answer := range []string{"n", "N", "esc"} {
 			t.Run(ask+"/"+answer, func(t *testing.T) {
 				m, _, ctl := actionSetup()
@@ -89,7 +89,7 @@ func TestAnythingButYesCancels(t *testing.T) {
 }
 
 func TestOtherKeysLeaveTheQuestionOpen(t *testing.T) {
-	for _, ask := range []string{"x", "X"} {
+	for _, ask := range []string{"x", "X", "s", "r"} {
 		t.Run(ask, func(t *testing.T) {
 			m, _, ctl := actionSetup()
 			press(m, ask)
@@ -141,9 +141,76 @@ func TestForceKillHasItsOwnStrongerConfirmation(t *testing.T) {
 	}
 }
 
+func TestEveryActionNeedsItsOwnAnswer(t *testing.T) {
+	m, _, ctl := actionSetup()
+	press(m, "x", "n", "X", "y") // declining one must not confirm the next
+	press(m, "X", "n", "x", "y")
+	press(m, "s", "n", "r", "y")
+	press(m, "r", "n", "s", "y")
+	want := []string{"kill 200", "terminate 200", "resume 200", "suspend 200"}
+	if !slices.Equal(ctl.calls, want) {
+		t.Errorf("calls = %v, want %v, each after its own yes", ctl.calls, want)
+	}
+}
+
+func TestSuspendAndResumeAskBeforeSending(t *testing.T) {
+	tests := []struct {
+		key, verb, signal, done, call string
+	}{
+		{"s", "Suspend", "SIGSTOP", "stopped", "suspend 200"},
+		{"r", "Resume", "SIGCONT", "resumed", "resume 200"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			m, _, ctl := actionSetup()
+			press(m, tt.key)
+
+			if len(ctl.calls) != 0 {
+				t.Fatalf("nothing may be sent before the answer, got %v", ctl.calls)
+			}
+			if m.mode != modeConfirm {
+				t.Fatal("the key must open a y/n question")
+			}
+			line := footerText(m)
+			for _, want := range []string{tt.verb + " 200 (firefox)?", "y/n"} {
+				if !strings.Contains(line, want) {
+					t.Errorf("the question is missing %q: %q", want, line)
+				}
+			}
+			if strings.Contains(line, "Press y") {
+				t.Errorf("only force kill spells out its answer: %q", line)
+			}
+
+			press(m, "y")
+			if !slices.Equal(ctl.calls, []string{tt.call}) {
+				t.Fatalf("calls = %v, want %q", ctl.calls, tt.call)
+			}
+			got := footerText(m)
+			if !strings.Contains(got, tt.signal+" sent to 200 (firefox)") || !strings.Contains(got, tt.done) {
+				t.Errorf("the status line must say what happened: %q", got)
+			}
+			if m.mode != modeNormal || m.notice.isErr {
+				t.Errorf("mode = %v, notice = %+v", m.mode, m.notice)
+			}
+		})
+	}
+}
+
+func TestTheMessageLastsUntilTheNextKey(t *testing.T) {
+	m, _, _ := actionSetup()
+	press(m, "s", "y")
+	if !strings.Contains(footerText(m), "SIGSTOP") {
+		t.Fatal("test setup: the message should be showing")
+	}
+	press(m, "down")
+	if strings.Contains(footerText(m), "SIGSTOP") {
+		t.Error("the message must go away on the next key")
+	}
+}
+
 func TestActionsWithNothingSelected(t *testing.T) {
 	m := loaded(100, 30)
-	for _, key := range []string{"x", "X"} {
+	for _, key := range []string{"x", "X", "s", "r"} {
 		press(m, key)
 		if got := footerText(m); !strings.Contains(got, "no process selected") {
 			t.Errorf("%s: message = %q", key, got)
@@ -171,4 +238,39 @@ func TestHostileNamesAreCleanedInMessagesAndQuestions(t *testing.T) {
 		t.Errorf("an escape sequence reached the screen: %q", got)
 	}
 	assertFits(t, m, 140, 35)
+}
+
+func TestTheNameFallsBackToTheCommand(t *testing.T) {
+	p := proc(200, "/bin/thing --flag", 5)
+	p.Comm = ""
+	p.StartTime = 1
+	mon, ctl := &fakeMonitor{}, &fakeControl{}
+	m := loadedOpts(mon, ctl, 140, 35, []monitor.Process{p})
+	press(m, "s")
+	if got := footerText(m); !strings.Contains(got, "Suspend 200 (/bin/thing --flag)?") {
+		t.Errorf("question = %q", got)
+	}
+	press(m, "y")
+	if got := footerText(m); !strings.Contains(got, "200 (/bin/thing --flag)") {
+		t.Errorf("message = %q", got)
+	}
+}
+
+func TestHelpLineListsTheActionKeys(t *testing.T) {
+	for _, build := range map[string]func() *Model{
+		"table": func() *Model { m, _, _ := actionSetup(); m.Update(windowSize(200, 35)); return m },
+		"detail": func() *Model {
+			m, _, _ := actionSetup()
+			m.Update(windowSize(200, 35))
+			deliver(m, press(m, "enter"))
+			return m
+		},
+	} {
+		help := footerText(build())
+		for _, want := range []string{"x terminate", "X kill", "s suspend", "r resume"} {
+			if !strings.Contains(help, want) {
+				t.Errorf("help line is missing %q: %q", want, help)
+			}
+		}
+	}
 }

@@ -25,6 +25,8 @@ type action struct {
 var actions = map[string]action{
 	"x": {signal: "SIGTERM", verb: "terminate", head: "Terminate %s?", why: "It is asked to exit and can clean up.", done: "asked to exit", send: Control.Terminate},
 	"X": {signal: "SIGKILL", verb: "force kill", head: "Force kill %s", why: "— the process cannot clean up.", done: "it cannot be caught or ignored", force: true, send: Control.Kill},
+	"s": {signal: "SIGSTOP", verb: "suspend", head: "Suspend %s?", why: "It stays frozen until it is resumed.", done: "stopped", send: Control.Suspend},
+	"r": {signal: "SIGCONT", verb: "resume", head: "Resume %s?", why: "It continues from where it stopped.", done: "resumed", send: Control.Resume},
 }
 
 // target is the process an action is about. It is captured when the action
