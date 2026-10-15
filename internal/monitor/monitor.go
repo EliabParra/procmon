@@ -3,15 +3,16 @@ package monitor
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/EliabParra/procmon/internal/oserr"
 	"github.com/EliabParra/procmon/internal/procfs"
 )
 
-// sample is what Refresh remembers about a process to measure it next time. The
-// start time is part of the identity: a PID that comes back with another start
-// time is a different process and must not be compared with the old one.
+// sample is what Refresh remembers about a process to measure it next time.
+// The start time is part of the identity: a PID that comes back with another
+// start time is a different process and must not be compared with the old one.
 type sample struct {
 	startTime uint64
 	ticks     uint64 // utime + stime
@@ -19,13 +20,15 @@ type sample struct {
 }
 
 // Monitor takes snapshots of a Source and remembers the previous one, which is
-// what turns cumulative CPU counters into a percentage.
+// what turns cumulative CPU counters into a percentage. It is safe for use by
+// several goroutines.
 type Monitor struct {
 	src      Source
 	users    *Users
 	now      func() time.Time
 	histSize int
 
+	mu       sync.Mutex
 	prev     map[int]sample // by PID, only processes seen in the last refresh
 	prevSys  uint64         // total jiffies of /proc/stat at the last refresh
 	havePrev bool
@@ -49,17 +52,18 @@ func New(src Source, opts ...Option) *Monitor {
 	return m
 }
 
-// Refresh reads every process and the system counters and returns a Snapshot,
-// processes in ascending PID order. %CPU is the growth of a process's
-// utime+stime since the previous Refresh divided by the growth of the system's
-// total jiffies (the course formula, a share of the whole machine), so the
-// first call reports 0 for everything. A process that exits while being read is
-// skipped; one whose status or command line is not readable keeps its row with
-// what could be read. Each listed process also gets one more sample in its
-// History, and the state of processes that are gone is dropped. Only a failure
-// of a system-wide file returns an error, and then the previous baseline is
-// kept.
+// Refresh reads every process and the system counters and returns a Snapshot.
+// %CPU is the growth of a process's utime+stime since the previous Refresh
+// divided by the growth of the system's total jiffies (the course formula, a
+// share of the whole machine), so the first call reports 0 for everything. A process that exits while being read is skipped;
+// one whose status or command line is not readable keeps its row with what
+// could be read. Each listed process also gets one more sample in its History,
+// and the state of processes that are gone is dropped. Only a failure of a
+// system-wide file returns an error, and then the previous baseline is kept.
 func (m *Monitor) Refresh() (Snapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	pids, err := m.src.PIDs()
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("monitor: list processes: %w", err)

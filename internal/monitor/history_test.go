@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/EliabParra/procmon/internal/procfs"
@@ -155,4 +156,30 @@ func TestFailedRefreshAddsNoSample(t *testing.T) {
 	if got := len(m.History(10)); got != 1 {
 		t.Fatalf("History(10) has %d samples after a failed refresh, want 1", got)
 	}
+}
+
+func TestMonitorIsSafeForConcurrentUse(t *testing.T) {
+	src := fourCoreMachine().add(proc{pid: 10}).add(proc{pid: 20})
+	src.threads[10] = []procfs.ProcStat{{PID: 10, Comm: "t", State: 'S'}}
+	m := newTestMonitor(t, src)
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				if _, err := m.Refresh(); err != nil {
+					t.Error(err)
+					return
+				}
+				m.History(10)
+				if _, err := m.Threads(10); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }

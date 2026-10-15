@@ -45,6 +45,8 @@ func WithHistory(n int) Option {
 // as long as that same process (PID and start time) keeps being listed. It is
 // nil for a PID that was not in the last Refresh.
 func (m *Monitor) History(pid int) []float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	s, ok := m.prev[pid]
 	if !ok {
 		return nil
