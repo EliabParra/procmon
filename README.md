@@ -266,3 +266,23 @@ program: `process 4321 no longer exists`, `permission denied: only root or the o
 SIGSTOP`, `permission denied: lowering nice needs root (CAP_SYS_NICE); only the owner can raise it`, `invalid
 nice "abc": not a whole number`.
 
+## Requirement checklist
+
+| Req | What | Where |
+|---|---|---|
+| 1 | Table: PID, PPID, user, state, %CPU, %MEM, RSS, threads, priority, CPU time, command | `internal/procfs/process.go` (parse), `internal/monitor/monitor.go` (`readProcess`), `internal/tui/table.go` |
+| 2 | Summary: total, running, stopped, zombies, load, memory | `internal/procfs/system.go`, `internal/monitor/monitor.go` (`summarize`), `internal/tui/header.go` |
+| 3 | %CPU by delta, coherent with the system | `internal/monitor/cpu.go` (`CPUPercent`, `PerCore`), `internal/monitor/monitor.go` (`Refresh`), display mode in `internal/tui/cpumode.go` |
+| 4 | Sort by CPU and by memory | `internal/monitor/sort.go`; keys `c`, `m`, `p` in `internal/tui/keys.go` |
+| 5 | Process tree | `internal/monitor/tree.go` (`BuildTree`, `WithAncestors`); `t` in `internal/tui/keys.go`, `rebuild` in `internal/tui/model.go`, connectors in `internal/tui/table.go` |
+| 6 | Thread view with per-thread state | `Threads` in `internal/procfs/process.go`, `internal/monitor/threads.go`, `internal/tui/detail.go` |
+| 7 | CPU history per process | `internal/monitor/history.go`; sparkline in `internal/tui/chart.go`, shown by `internal/tui/detail.go` |
+| 8 | Highlight zombies (Z) and I/O-blocked (D) | `internal/tui/style.go` (`state`), `styleRow` and `paint` in `internal/tui/table.go`, counts in `internal/tui/header.go` |
+| 9 | Terminate, force kill (separate confirmation), suspend, resume | `internal/control/control.go`; `internal/tui/actions.go` |
+| 10 | Show and change priority | `Priority` and `SetPriority` in `internal/control/control.go`; PRI and NI columns; `n` in `internal/tui/actions.go` |
+| 11 | Full-screen TUI, real size, resize, no flicker, header/table/help line, terminal restored | `internal/tui/view.go` (alternate screen, layout, exact-size frames), `internal/tui/footer.go`, `cmd/procmon/main.go` |
+| 12 | Refresh interval configurable from the UI | `internal/tui/interval.go`; keys `i`, `+`, `-`; flag `-interval` |
+| 13 | Hot keys: quit, interval, sort, filter, tree, threads, act, priority (and `I`, the %CPU mode) | `internal/tui/keys.go`, help line in `internal/tui/footer.go` |
+| 14 | Confirmation message naming process and action | `confirmLine` and the notices in `internal/tui/actions.go` |
+| 15 | Clear message, no crash, when the process is gone or permission is denied | `internal/oserr/oserr.go`; `Classify` calls in `internal/procfs` and `internal/control`; `failure` in `internal/tui/actions.go`; `Refresh` skips processes that exit while being read |
+
