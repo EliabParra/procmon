@@ -286,3 +286,69 @@ nice "abc": not a whole number`.
 | 14 | Confirmation message naming process and action | `confirmLine` and the notices in `internal/tui/actions.go` |
 | 15 | Clear message, no crash, when the process is gone or permission is denied | `internal/oserr/oserr.go`; `Classify` calls in `internal/procfs` and `internal/control`; `failure` in `internal/tui/actions.go`; `Refresh` skips processes that exit while being read |
 
+## Testing
+
+```sh
+go test ./...                                   # all packages
+go test -cover ./...                            # with statement coverage
+go test -race ./internal/tui/ ./internal/monitor/
+go vet ./... && gofmt -l .                      # gofmt prints nothing when clean
+```
+
+There are 271 test functions. Coverage observed on the last run of `go test -cover ./...`:
+
+| Package | Statements covered |
+|---|---|
+| `internal/control` | 100.0% |
+| `internal/monitor` | 100.0% |
+| `internal/tui` | 99.9% |
+| `internal/procfs` | 97.5% |
+| `internal/oserr` | 83.3% |
+| `cmd/procmon` | 39.5% |
+
+What is not covered: in `procfs` and `oserr`, a few error returns (a system file that cannot be read, an error
+that is already classified); in `cmd/procmon`, `main` and the thin `controller` adapter, which need a real
+terminal. Those were exercised by hand in a terminal multiplexer instead.
+
+- **TDD.** Each unit started red (a failing test, or a build failure for a type that did not exist yet), then
+  green, then refactor. The progress log in `odd/tasks/process-monitor.md` lists the tests that failed first and
+  the mutation checks (break the code on purpose, confirm a test fails).
+- **Fixtures.** `internal/procfs/testdata/proc/` is a small tree laid out like `/proc` (19 files): a process
+  with three threads, a kernel thread, a process whose name contains parentheses, a non-numeric directory that
+  must be ignored, and the system files. `procfs.NewFS(root)` points the parsers at it, so the tests do not depend on the machine.
+- **Fakes for the ports.** `internal/monitor/fake_test.go` is a `Source` whose counters change between two
+  refreshes, which is how the %CPU tests work without sleeping. `internal/tui/fakes_test.go` has a fake
+  `Monitor` and a fake `Control` that records calls. The screen is tested by sending `tea.KeyPressMsg` and
+  `tea.WindowSizeMsg` to the model and reading the frame as text, checking that no line is wider than the terminal.
+- **`control` tests.** The three system calls sit behind variables so a test can check exactly what would reach
+  the kernel (and simulate `EPERM`). Tests with real processes signal a `sleep` child started by the test; the
+  "process is gone" test uses a PID above `pid_max`, so no real signal can reach a recycled PID.
+- **Real `/proc`.** `TestRealProc`, `TestRefreshOnTheRealProc` and `TestThreadsOnTheRealProc` read the live
+  system and skip when there is no `/proc`.
+
+## Known limitations
+
+- **The state letter is the main thread's.** `/proc/[pid]/stat` reports the state of the thread whose id is the
+  PID, while `utime` and `stime` add up all threads. A process burning CPU on another thread can show `S` in the
+  table. Observed with a test program whose main thread sleeps while another thread spins: the process showed
+  `S`, the spinning thread `R`. This is not guaranteed in either direction (a similar program without pinning
+  its main goroutine showed `R`); the detail view lists the state of every thread.
+- **`Verify` narrows the PID race, it does not close it** (see the previous section). A pidfd would.
+- **Signalling a zombie succeeds and does nothing.** `kill(2)` returns success on a zombie, which stays in state
+  Z until its parent reads its exit status. The status line will still say the signal was sent.
+- **%CPU is coarse at short intervals** (section 6): the counters tick in units of 10 ms.
+- **Priority acts on one thread.** `n` changes the nice of the main thread, not of the other threads of the
+  process.
+- **Permissions.** Another user's process may hide `status`, `cmdline` or its threads. The row then keeps what
+  could be read (USER `?`, command `[comm]`) and the detail view says "permission denied" for the threads.
+- **USER needs `/etc/passwd`,** the only file read outside `/proc`. If it is unreadable or a UID is missing, the
+  number is shown.
+- **Counts by state.** Tasks counts every process read; the other counts cover R, S/I, D, T/t and Z, so a rare
+  state (for example X) appears only in the total.
+- **History is in memory only:** 60 samples per process (one minute at the default interval), dropped when the
+  process exits or the program ends.
+- **Suspending under tmux.** The tmux server resumes a stopped pane process of its own right away (checked:
+  a direct child of the tmux server was back in state S 0.3 s after SIGSTOP). To demonstrate `s` inside tmux,
+  pick a process that is not a direct child of the tmux server, for example run `sh -c 'sleep 300 & wait'` and
+  select the `sleep`.
+- **Linux only,** because of `/proc` and the Linux behaviour of `getpriority` and `setpriority`.
