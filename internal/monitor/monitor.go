@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/EliabParra/procmon/internal/oserr"
+	"github.com/EliabParra/procmon/internal/procfs"
 )
 
 // sample is what Refresh remembers about a process to measure it next time. The
@@ -65,6 +66,14 @@ func (m *Monitor) Refresh() (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	load, err := m.src.LoadAvg()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	uptime, err := m.src.Uptime()
+	if err != nil {
+		return Snapshot{}, err
+	}
 
 	hz := m.src.ClockTicks()
 	cores := max(len(sys.Cores), 1)
@@ -92,6 +101,7 @@ func (m *Monitor) Refresh() (Snapshot, error) {
 	m.prev, m.prevSys, m.havePrev = next, sysTotal, true
 	return Snapshot{
 		Processes: procs,
+		Summary:   summarize(procs, mem, load, uptime),
 		Cores:     cores,
 		TakenAt:   m.now(),
 	}, nil
@@ -139,4 +149,38 @@ func (m *Monitor) readProcess(pid, hz int, memTotalKB uint64) (p Process, ticks 
 		Comm:       st.Comm,
 		StartTime:  st.StartTime,
 	}, ticks, true
+}
+
+// summarize counts the states of the processes that were read and copies the
+// load, memory and uptime figures.
+func summarize(procs []Process, mem procfs.MemInfo, load procfs.LoadAvg, uptime float64) Summary {
+	s := Summary{
+		Total:          len(procs),
+		Load1:          load.One,
+		Load5:          load.Five,
+		Load15:         load.Fifteen,
+		MemTotalKB:     mem.MemTotalKB,
+		MemAvailableKB: mem.MemAvailableKB,
+		MemUsedKB:      sub(mem.MemTotalKB, mem.MemAvailableKB),
+		SwapTotalKB:    mem.SwapTotalKB,
+		SwapUsedKB:     sub(mem.SwapTotalKB, mem.SwapFreeKB),
+		Uptime:         time.Duration(uptime * float64(time.Second)),
+	}
+	for _, p := range procs {
+		switch p.State {
+		case 'R':
+			s.Running++
+		case 'S':
+			s.Sleeping++
+		case 'D':
+			s.DiskSleep++
+		case 'T', 't':
+			s.Stopped++
+		case 'Z':
+			s.Zombie++
+		case 'I':
+			s.Idle++
+		}
+	}
+	return s
 }

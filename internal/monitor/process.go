@@ -25,9 +25,32 @@ type Process struct {
 	StartTime  uint64 // clock ticks after boot; with PID it identifies one process
 }
 
+// Summary is the header of the screen. The process counts come from the states
+// of the processes read in this snapshot, not from /proc/loadavg.
+type Summary struct {
+	Total     int // processes in the snapshot
+	Running   int // state R
+	Sleeping  int // state S
+	DiskSleep int // state D, uninterruptible sleep (usually waiting on I/O)
+	Stopped   int // states T and t
+	Zombie    int // state Z
+	Idle      int // state I (idle kernel threads)
+
+	Load1, Load5, Load15 float64
+
+	MemTotalKB     uint64
+	MemAvailableKB uint64
+	MemUsedKB      uint64 // MemTotalKB - MemAvailableKB
+	SwapTotalKB    uint64
+	SwapUsedKB     uint64
+
+	Uptime time.Duration
+}
+
 // Snapshot is the state of the machine at one Refresh.
 type Snapshot struct {
 	Processes []Process // ascending PID; use Sort, Filter and BuildTree to present them
-	Cores     int       // logical CPUs, the factor of the per-core view of %CPU (PerCore)
+	Summary   Summary
+	Cores     int // logical CPUs, the factor of the per-core view of %CPU (PerCore)
 	TakenAt   time.Time
 }

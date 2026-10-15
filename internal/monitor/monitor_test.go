@@ -201,6 +201,39 @@ func TestRefreshUsesOneCoreWhenNoneAreListed(t *testing.T) {
 	near(t, "%CPU", byPID(t, snap, 10).CPUPercent, 50)
 }
 
+func TestRefreshSummary(t *testing.T) {
+	src := fourCoreMachine()
+	for pid, state := range map[int]byte{
+		1: 'S', 2: 'S', 3: 'S', 4: 'R', 5: 'R', 6: 'D', 7: 'T', 8: 't', 9: 'Z', 10: 'I', 11: 'X',
+	} {
+		src.add(proc{pid: pid, state: state})
+	}
+	src.load = procfs.LoadAvg{One: 0.5, Five: 1.5, Fifteen: 2.5, Running: 99, Total: 500}
+	src.mem = procfs.MemInfo{MemTotalKB: 16000, MemAvailableKB: 6000, SwapTotalKB: 2000, SwapFreeKB: 500}
+	src.uptime = 3661.5
+	got := mustRefresh(t, newTestMonitor(t, src)).Summary
+
+	want := Summary{
+		Total: 11, Running: 2, Sleeping: 3, DiskSleep: 1, Stopped: 2, Zombie: 1, Idle: 1,
+		Load1: 0.5, Load5: 1.5, Load15: 2.5,
+		MemTotalKB: 16000, MemAvailableKB: 6000, MemUsedKB: 10000,
+		SwapTotalKB: 2000, SwapUsedKB: 1500,
+		Uptime: time.Hour + time.Minute + time.Second + 500*time.Millisecond,
+	}
+	if got != want {
+		t.Fatalf("summary = %+v\nwant     %+v", got, want)
+	}
+}
+
+func TestRefreshSummaryNeverUnderflows(t *testing.T) {
+	src := fourCoreMachine()
+	src.mem = procfs.MemInfo{MemTotalKB: 1000, MemAvailableKB: 1200, SwapTotalKB: 100, SwapFreeKB: 300}
+	got := mustRefresh(t, newTestMonitor(t, src)).Summary
+	if got.MemUsedKB != 0 || got.SwapUsedKB != 0 {
+		t.Fatalf("MemUsedKB = %d, SwapUsedKB = %d, want 0 and 0", got.MemUsedKB, got.SwapUsedKB)
+	}
+}
+
 func TestRefreshSkipsProcessesThatExit(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -225,6 +258,9 @@ func TestRefreshSkipsProcessesThatExit(t *testing.T) {
 			}
 			if got, want := pids(snap.Processes), []int{20}; !slices.Equal(got, want) {
 				t.Fatalf("processes = %v, want %v", got, want)
+			}
+			if snap.Summary.Total != 1 {
+				t.Fatalf("Total = %d, want 1", snap.Summary.Total)
 			}
 		})
 	}
