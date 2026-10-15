@@ -30,6 +30,30 @@ func TestCPUPercent(t *testing.T) {
 	}
 }
 
+func TestPerCore(t *testing.T) {
+	tests := []struct {
+		name  string
+		share float64
+		cores int
+		want  float64
+	}{
+		{"idle", 0, 4, 0},
+		{"a quarter of four cores is one core flat out", 25, 4, 100},
+		{"the whole machine is every core", 100, 4, 400},
+		{"single core machine changes nothing", 40, 1, 40},
+		{"zero cores is treated as one", 50, 0, 50},
+		{"negative cores is treated as one", 50, -3, 50},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PerCore(tt.share, tt.cores)
+			if math.Abs(got-tt.want) > 1e-9 {
+				t.Fatalf("PerCore(%v, %d) = %v, want %v", tt.share, tt.cores, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMemPercent(t *testing.T) {
 	tests := []struct {
 		name           string

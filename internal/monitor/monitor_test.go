@@ -119,6 +119,9 @@ func TestRefreshComputesCPUPercentFromDeltas(t *testing.T) {
 	if total > 100 {
 		t.Fatalf("sum of %%CPU = %v exceeds 100", total)
 	}
+
+	// The per-core view of the same figure is what top shows by default.
+	near(t, "pid 10 per core", PerCore(byPID(t, snap, 10).CPUPercent, snap.Cores), 100)
 }
 
 func TestRefreshNewProcessStartsAtZero(t *testing.T) {

@@ -15,6 +15,13 @@ func CPUPercent(procDelta, sysDelta uint64) float64 {
 	return float64(procDelta) / float64(sysDelta) * 100
 }
 
+// PerCore turns a share of the whole machine into the per-core figure of top's
+// default Irix mode, where 100 is one core flat out and a multithreaded
+// process can go beyond it. A count below one is treated as one.
+func PerCore(share float64, cores int) float64 {
+	return share * float64(max(cores, 1))
+}
+
 // MemPercent is the resident memory of a process as a share of total memory.
 func MemPercent(rssKB, totalKB uint64) float64 {
 	if totalKB == 0 {
