@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/EliabParra/procmon/internal/monitor"
+	"github.com/EliabParra/procmon/internal/oserr"
 )
 
 // actionSetup is a model whose selected process is PID 200, firefox.
@@ -205,6 +208,39 @@ func TestTheMessageLastsUntilTheNextKey(t *testing.T) {
 	press(m, "down")
 	if strings.Contains(footerText(m), "SIGSTOP") {
 		t.Error("the message must go away on the next key")
+	}
+}
+
+func TestFailuresAreExplainedNotFatal(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want []string
+	}{
+		{"the process is gone", fmt.Errorf("control: %w", oserr.ErrProcessGone), []string{"process 200 no longer exists"}},
+		{"permission denied", fmt.Errorf("control: %w", oserr.ErrPermission), []string{"permission denied", "root", "owner", "SIGSTOP", "200 (firefox)"}},
+		{"anything else", errors.New("boom"), []string{"SIGSTOP to 200 (firefox) failed", "boom"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _, ctl := actionSetup()
+			ctl.err = tt.err
+			if isQuit(press(m, "s", "y")) {
+				t.Fatal("an error must not quit")
+			}
+			got := footerText(m)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("the message is missing %q: %q", want, got)
+				}
+			}
+			if !m.notice.isErr {
+				t.Errorf("a failure must be flagged as an error: %+v", m.notice)
+			}
+			if !strings.Contains(rawFooter(m), sgrFg(colError)) {
+				t.Errorf("errors are drawn in the error colour: %q", rawFooter(m))
+			}
+		})
 	}
 }
 

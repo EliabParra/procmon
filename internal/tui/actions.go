@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/EliabParra/procmon/internal/monitor"
+	"github.com/EliabParra/procmon/internal/oserr"
 )
 
 // action is one of the signals the screen can send.
@@ -81,12 +83,25 @@ func (m *Model) startAction(key string) {
 
 // perform sends the signal.
 func (m *Model) perform(a action, t target) {
-	failed := fmt.Sprintf("%s to %s failed", a.signal, t)
+	can, failed := "send "+a.signal, fmt.Sprintf("%s to %s failed", a.signal, t)
 	if err := a.send(m.ctl, t.pid); err != nil {
-		m.notice = notice{text: fmt.Sprintf("%s: %s", failed, clean(err.Error())), isErr: true}
+		m.notice = failure(err, t, can, failed)
 		return
 	}
 	m.notice = notice{text: fmt.Sprintf("%s sent to %s — %s", a.signal, t, a.done)}
+}
+
+// failure turns an error of the act or read doors into a message for the
+// status line. can is what was not allowed ("send SIGSTOP") and failed how
+// to say it did not work.
+func failure(err error, t target, can, failed string) notice {
+	switch {
+	case errors.Is(err, oserr.ErrProcessGone):
+		return notice{text: fmt.Sprintf("process %d no longer exists", t.pid), isErr: true}
+	case errors.Is(err, oserr.ErrPermission):
+		return notice{text: fmt.Sprintf("permission denied: only root or the owner of %s can %s", t, can), isErr: true}
+	}
+	return notice{text: fmt.Sprintf("%s: %s", failed, clean(err.Error())), isErr: true}
 }
 
 // confirmKey answers the question: y does it, n or esc cancels, and any other
