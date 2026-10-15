@@ -14,6 +14,13 @@ var (
 	// signals the caller's whole process group and kill(-1, sig) every
 	// process the caller may signal.
 	ErrInvalidPID = errors.New("invalid pid")
+	// ErrInvalidPriority rejects a nice value outside the kernel range.
+	ErrInvalidPriority = errors.New("nice value must be between -20 and 19")
+)
+
+const (
+	minNice = -20 // highest priority
+	maxNice = 19  // lowest priority
 )
 
 // The three system calls, behind variables so tests can check exactly what
@@ -21,6 +28,7 @@ var (
 var (
 	sysKill        = syscall.Kill
 	sysGetpriority = syscall.Getpriority
+	sysSetpriority = syscall.Setpriority
 )
 
 // Terminate asks the process to exit cleanly: kill(2) with SIGTERM.
@@ -57,6 +65,20 @@ func Priority(pid int) (int, error) {
 	// The raw Linux syscall returns 20 - nice (1..40) so that -1 never looks
 	// like an error. glibc undoes this; Go's syscall package does not.
 	return 20 - raw, nil
+}
+
+// SetPriority changes the nice value of pid with setpriority(2). Raising the
+// nice value (lower priority) is allowed for the owner; lowering it needs
+// privilege and fails with oserr.ErrPermission. Like Priority, it applies to
+// the thread whose id is pid, i.e. the main thread of a process.
+func SetPriority(pid, nice int) error {
+	if err := checkPID(pid); err != nil {
+		return err
+	}
+	if nice < minNice || nice > maxNice {
+		return fmt.Errorf("%w: got %d", ErrInvalidPriority, nice)
+	}
+	return sysSetpriority(syscall.PRIO_PROCESS, pid, nice)
 }
 
 func checkPID(pid int) error {

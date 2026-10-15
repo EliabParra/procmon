@@ -16,6 +16,7 @@ import (
 type kernelCalls struct {
 	kills    [][2]int // {pid, signal}
 	getCalls []int    // pid
+	setCalls [][3]int // {which, pid, nice}
 	getRaw   int      // value the fake getpriority returns
 	err      error    // error every fake call returns
 }
@@ -24,8 +25,8 @@ type kernelCalls struct {
 func fakeKernel(t *testing.T) *kernelCalls {
 	t.Helper()
 	k := &kernelCalls{}
-	origKill, origGet := sysKill, sysGetpriority
-	t.Cleanup(func() { sysKill, sysGetpriority = origKill, origGet })
+	origKill, origGet, origSet := sysKill, sysGetpriority, sysSetpriority
+	t.Cleanup(func() { sysKill, sysGetpriority, sysSetpriority = origKill, origGet, origSet })
 
 	sysKill = func(pid int, sig syscall.Signal) error {
 		k.kills = append(k.kills, [2]int{pid, int(sig)})
@@ -35,11 +36,15 @@ func fakeKernel(t *testing.T) *kernelCalls {
 		k.getCalls = append(k.getCalls, who)
 		return k.getRaw, k.err
 	}
+	sysSetpriority = func(which, who, nice int) error {
+		k.setCalls = append(k.setCalls, [3]int{which, who, nice})
+		return k.err
+	}
 	return k
 }
 
 func (k *kernelCalls) touched() bool {
-	return len(k.kills) > 0 || len(k.getCalls) > 0
+	return len(k.kills) > 0 || len(k.getCalls) > 0 || len(k.setCalls) > 0
 }
 
 // ---- real child process ----
@@ -124,11 +129,12 @@ func TestInvalidPIDNeverReachesTheKernel(t *testing.T) {
 	// kill(0) signals the whole process group and kill(-1) every process we may
 	// signal; setpriority(0) would act on the caller. None may ever be issued.
 	actions := map[string]func(pid int) error{
-		"Terminate": Terminate,
-		"Kill":      Kill,
-		"Suspend":   Suspend,
-		"Resume":    Resume,
-		"Priority":  func(pid int) error { _, err := Priority(pid); return err },
+		"Terminate":   Terminate,
+		"Kill":        Kill,
+		"Suspend":     Suspend,
+		"Resume":      Resume,
+		"SetPriority": func(pid int) error { return SetPriority(pid, 5) },
+		"Priority":    func(pid int) error { _, err := Priority(pid); return err },
 	}
 	for name, act := range actions {
 		for _, pid := range []int{0, -1, -4242} {
@@ -198,6 +204,39 @@ func TestPriorityConvertsTheRawSyscallValue(t *testing.T) {
 	}
 }
 
+func TestSetPriorityValidatesRange(t *testing.T) {
+	tests := []struct {
+		nice    int
+		wantErr bool
+	}{
+		{nice: -21, wantErr: true},
+		{nice: 20, wantErr: true},
+		{nice: 1000, wantErr: true},
+		{nice: -20},
+		{nice: 0},
+		{nice: 19},
+	}
+	for _, tt := range tests {
+		k := fakeKernel(t)
+		err := SetPriority(55, tt.nice)
+		if tt.wantErr {
+			if !errors.Is(err, ErrInvalidPriority) {
+				t.Errorf("nice %d: err = %v, want ErrInvalidPriority", tt.nice, err)
+			}
+			if k.touched() {
+				t.Errorf("nice %d: out-of-range value reached the kernel", tt.nice)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("nice %d: unexpected error %v", tt.nice, err)
+		}
+		if len(k.setCalls) != 1 || k.setCalls[0] != [3]int{syscall.PRIO_PROCESS, 55, tt.nice} {
+			t.Errorf("nice %d: setpriority calls = %v", tt.nice, k.setCalls)
+		}
+	}
+}
+
 // ---- real syscalls against a child process spawned by the test ----
 
 func TestTerminateKillsTheChildWithSIGTERM(t *testing.T) {
@@ -247,5 +286,45 @@ func TestPriorityMatchesWhatProcReports(t *testing.T) {
 	}
 	if got != st.Nice {
 		t.Fatalf("Priority = %d but /proc/%d/stat says nice %d", got, c.pid, st.Nice)
+	}
+}
+
+func TestSetPriorityRoundTrip(t *testing.T) {
+	c := spawnSleep(t)
+	// /proc is the independent oracle for the starting point, not Priority itself.
+	start, err := procfs.New().Stat(c.pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := start.Nice
+	// Nice 10 is the fixed point of the kernel's 20 - nice encoding, so on its
+	// own it cannot tell a missing conversion from a correct one: 5 and 15 do.
+	// Targets only go up because an unprivileged user cannot lower nice.
+	executed := 0
+	for _, target := range []int{5, 10, 15} {
+		if target < before {
+			continue
+		}
+		executed++
+		if err := SetPriority(c.pid, target); err != nil {
+			t.Fatalf("SetPriority(%d): %v", target, err)
+		}
+		got, err := Priority(c.pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != target {
+			t.Errorf("Priority after SetPriority(%d) = %d", target, got)
+		}
+		st, err := procfs.New().Stat(c.pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Nice != target {
+			t.Errorf("/proc reports nice %d after SetPriority(%d)", st.Nice, target)
+		}
+	}
+	if executed == 0 {
+		t.Skipf("the child already runs at nice %d, above every target; nothing was checked", before)
 	}
 }
