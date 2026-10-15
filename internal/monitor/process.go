@@ -28,5 +28,6 @@ type Process struct {
 // Snapshot is the state of the machine at one Refresh.
 type Snapshot struct {
 	Processes []Process // ascending PID; use Sort, Filter and BuildTree to present them
+	Cores     int       // logical CPUs, the factor of the per-core view of %CPU (PerCore)
 	TakenAt   time.Time
 }

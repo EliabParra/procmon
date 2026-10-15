@@ -3,12 +3,21 @@ package monitor
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/EliabParra/procmon/internal/oserr"
+	"github.com/EliabParra/procmon/internal/procfs"
 )
+
+func near(t *testing.T, what string, got, want float64) {
+	t.Helper()
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("%s = %v, want %v", what, got, want)
+	}
+}
 
 func mustRefresh(t *testing.T, m *Monitor) Snapshot {
 	t.Helper()
@@ -38,6 +47,9 @@ func TestRefreshFillsTheProcessRow(t *testing.T) {
 	if got := byPID(t, snap, 100); got != want {
 		t.Fatalf("row = %+v\nwant  %+v", got, want)
 	}
+	if snap.Cores != 4 {
+		t.Fatalf("Cores = %d, want 4", snap.Cores)
+	}
 	if want := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC); !snap.TakenAt.Equal(want) {
 		t.Fatalf("TakenAt = %v, want %v", snap.TakenAt, want)
 	}
@@ -62,6 +74,102 @@ func TestRefreshCommandFallsBackToComm(t *testing.T) {
 	if got := byPID(t, snap, 3).Command; got != "bash -l" {
 		t.Fatalf("Command = %q, want bash -l", got)
 	}
+}
+
+func TestRefreshFirstSampleHasNoCPUPercent(t *testing.T) {
+	src := fourCoreMachine().add(proc{pid: 10, utime: 9000}).add(proc{pid: 20, utime: 1})
+	src.tick(123456)
+	snap := mustRefresh(t, newTestMonitor(t, src))
+	if len(snap.Processes) != 2 {
+		t.Fatalf("processes = %v, want 2", pids(snap.Processes))
+	}
+	for _, p := range snap.Processes {
+		if p.CPUPercent != 0 {
+			t.Fatalf("pid %d CPUPercent = %v on the first refresh, want 0", p.PID, p.CPUPercent)
+		}
+	}
+}
+
+func TestRefreshComputesCPUPercentFromDeltas(t *testing.T) {
+	src := fourCoreMachine().
+		add(proc{pid: 10, utime: 1000}).
+		add(proc{pid: 20, utime: 500}).
+		add(proc{pid: 30, utime: 70})
+	src.tick(5000)
+	m := newTestMonitor(t, src)
+	mustRefresh(t, m)
+
+	// 400 jiffies pass over 4 cores = 100 ticks of wall time.
+	src.tick(400)
+	src.burn(10, 100) // a whole core for the whole interval
+	src.burn(20, 50)  // half of one core
+	snap := mustRefresh(t, m)
+
+	// The spec formula: the process delta over the system delta, so one core of
+	// four is a quarter of the machine.
+	near(t, "pid 10 %CPU", byPID(t, snap, 10).CPUPercent, 25)
+	near(t, "pid 20 %CPU", byPID(t, snap, 20).CPUPercent, 12.5)
+	near(t, "pid 30 %CPU", byPID(t, snap, 30).CPUPercent, 0)
+
+	// Coherence with the system: the processes cannot use more than the whole machine.
+	total := 0.0
+	for _, p := range snap.Processes {
+		total += p.CPUPercent
+	}
+	if total > 100 {
+		t.Fatalf("sum of %%CPU = %v exceeds 100", total)
+	}
+}
+
+func TestRefreshNewProcessStartsAtZero(t *testing.T) {
+	src := fourCoreMachine().add(proc{pid: 10, utime: 100})
+	src.tick(1000)
+	m := newTestMonitor(t, src)
+	mustRefresh(t, m)
+
+	src.add(proc{pid: 40, utime: 999, start: 7000}) // appeared since the last refresh
+	src.tick(400)
+	snap := mustRefresh(t, m)
+	near(t, "new process %CPU", byPID(t, snap, 40).CPUPercent, 0)
+}
+
+func TestRefreshCountersGoingBackwardsGiveZero(t *testing.T) {
+	t.Run("process counter", func(t *testing.T) {
+		src := fourCoreMachine().add(proc{pid: 10, utime: 500})
+		src.tick(1000)
+		m := newTestMonitor(t, src)
+		mustRefresh(t, m)
+
+		src.stats[10] = procfs.ProcStat{PID: 10, State: 'S', StartTime: 1000, UTime: 100}
+		src.tick(400)
+		near(t, "%CPU", byPID(t, mustRefresh(t, m), 10).CPUPercent, 0)
+	})
+	t.Run("system counter", func(t *testing.T) {
+		src := fourCoreMachine().add(proc{pid: 10, utime: 500})
+		src.tick(1000)
+		m := newTestMonitor(t, src)
+		mustRefresh(t, m)
+
+		src.burn(10, 50)
+		src.sys.CPU.User = 10
+		near(t, "%CPU", byPID(t, mustRefresh(t, m), 10).CPUPercent, 0)
+	})
+}
+
+func TestRefreshUsesOneCoreWhenNoneAreListed(t *testing.T) {
+	src := fourCoreMachine().add(proc{pid: 10, utime: 0})
+	src.sys.Cores = nil
+	src.tick(1000)
+	m := newTestMonitor(t, src)
+	mustRefresh(t, m)
+
+	src.tick(100)
+	src.burn(10, 50)
+	snap := mustRefresh(t, m)
+	if snap.Cores != 1 {
+		t.Fatalf("Cores = %d, want the fallback 1", snap.Cores)
+	}
+	near(t, "%CPU", byPID(t, snap, 10).CPUPercent, 50)
 }
 
 func TestRefreshSkipsProcessesThatExit(t *testing.T) {

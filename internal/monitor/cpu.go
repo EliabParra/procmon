@@ -35,3 +35,12 @@ func ticksToDuration(ticks uint64, hz int) time.Duration {
 	rest := ticks % perSecond
 	return time.Duration(seconds)*time.Second + time.Duration(rest*uint64(time.Second)/perSecond)
 }
+
+// sub is a-b stopping at 0, so a counter that went backwards gives no delta
+// instead of wrapping around.
+func sub(a, b uint64) uint64 {
+	if a < b {
+		return 0
+	}
+	return a - b
+}

@@ -7,11 +7,21 @@ import (
 	"github.com/EliabParra/procmon/internal/oserr"
 )
 
-// Monitor takes snapshots of a Source.
+// sample is what Refresh remembers about a process to measure it next time.
+type sample struct {
+	ticks uint64 // utime + stime
+}
+
+// Monitor takes snapshots of a Source and remembers the previous one, which is
+// what turns cumulative CPU counters into a percentage.
 type Monitor struct {
 	src   Source
 	users *Users
 	now   func() time.Time
+
+	prev     map[int]sample // by PID, only processes seen in the last refresh
+	prevSys  uint64         // total jiffies of /proc/stat at the last refresh
+	havePrev bool
 }
 
 // Option customizes a Monitor.
@@ -32,11 +42,19 @@ func New(src Source, opts ...Option) *Monitor {
 	return m
 }
 
-// Refresh reads every process and returns a Snapshot, processes in ascending
-// PID order. A process that exits while being read is skipped; one whose status
-// or command line is not readable keeps its row with what could be read.
+// Refresh reads every process and the system counters and returns a Snapshot,
+// processes in ascending PID order. %CPU is the growth of a process's
+// utime+stime since the previous Refresh divided by the growth of the system's
+// total jiffies (the course formula, a share of the whole machine), so the
+// first call reports 0 for everything. A process that exits while being read is
+// skipped; one whose status or command line is not readable keeps its row with
+// what could be read.
 func (m *Monitor) Refresh() (Snapshot, error) {
 	pids, err := m.src.PIDs()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	sys, err := m.src.SystemStat()
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -46,19 +64,32 @@ func (m *Monitor) Refresh() (Snapshot, error) {
 	}
 
 	hz := m.src.ClockTicks()
+	cores := max(len(sys.Cores), 1)
+	sysTotal := sys.CPU.Total()
+	var sysDelta uint64
+	if m.havePrev {
+		sysDelta = sub(sysTotal, m.prevSys)
+	}
 
 	procs := make([]Process, 0, len(pids))
+	next := make(map[int]sample, len(pids))
 	for _, pid := range pids {
-		p, _, ok := m.readProcess(pid, hz, mem.MemTotalKB)
+		p, ticks, ok := m.readProcess(pid, hz, mem.MemTotalKB)
 		if !ok {
 			continue
 		}
+		if old, seen := m.prev[pid]; seen {
+			p.CPUPercent = CPUPercent(sub(ticks, old.ticks), sysDelta)
+		}
+		next[pid] = sample{ticks: ticks}
 		procs = append(procs, p)
 	}
 	Sort(procs, ByPID)
 
+	m.prev, m.prevSys, m.havePrev = next, sysTotal, true
 	return Snapshot{
 		Processes: procs,
+		Cores:     cores,
 		TakenAt:   m.now(),
 	}, nil
 }
