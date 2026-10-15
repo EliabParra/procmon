@@ -165,9 +165,7 @@ func TestMonitorIsSafeForConcurrentUse(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 50 {
 				if _, err := m.Refresh(); err != nil {
 					t.Error(err)
@@ -179,7 +177,7 @@ func TestMonitorIsSafeForConcurrentUse(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
