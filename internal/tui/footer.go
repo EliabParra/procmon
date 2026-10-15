@@ -31,8 +31,11 @@ var normalHints = []hint{
 var detailHints = []hint{
 	{"q", "quit"},
 	{"esc", "back"},
+	{"↑/↓", "threads"},
 	{"+/-", "interval"},
 	{"i", "set interval"},
+	{"pgup/pgdn", "page"},
+	{"home/end", "jump"},
 }
 
 // hints are the keys the current screen answers to.

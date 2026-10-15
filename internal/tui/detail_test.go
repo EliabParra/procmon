@@ -368,6 +368,56 @@ func manyThreads(n int) []monitor.Thread {
 	return threads
 }
 
+func TestThreadListScrolls(t *testing.T) {
+	m, mon := editorSetup(100, 20) // 12 body lines in the box, 4 of them thread rows
+	mon.threads[200] = manyThreads(40)
+	openDetail(m)
+
+	has := func(tid int) bool {
+		return regexp.MustCompile(fmt.Sprintf(`\b%d\s+S\b`, tid)).MatchString(screenText(m))
+	}
+
+	if !has(1000) || has(1004) {
+		t.Fatalf("the list starts at the first thread, 4 rows tall:\n%s", screenText(m))
+	}
+	if !strings.Contains(screenText(m), "1-4 of 40") {
+		t.Errorf("the title must say which threads are shown:\n%s", screenText(m))
+	}
+
+	press(m, "down")
+	if has(1000) || !has(1001) || !has(1004) {
+		t.Errorf("down scrolls one thread:\n%s", screenText(m))
+	}
+	press(m, "up", "up")
+	if !has(1000) {
+		t.Error("up at the top stays at the top")
+	}
+	press(m, "pgdown")
+	if !has(1004) || has(1003) {
+		t.Errorf("pgdn scrolls a page:\n%s", screenText(m))
+	}
+	press(m, "pgup")
+	if !has(1000) {
+		t.Errorf("pgup scrolls a page back:\n%s", screenText(m))
+	}
+	press(m, "pgdown", "end")
+	if !has(1039) || has(1035) {
+		t.Errorf("end shows the last threads:\n%s", screenText(m))
+	}
+	press(m, "down", "pgdown")
+	if !has(1039) {
+		t.Error("scrolling past the end stays at the end")
+	}
+	press(m, "home")
+	if !has(1000) {
+		t.Error("home goes back to the first thread")
+	}
+	press(m, "j", "j", "k")
+	if !has(1001) || has(1000) {
+		t.Errorf("j and k scroll like the arrows:\n%s", screenText(m))
+	}
+}
+
 // With no room for thread rows the title must not claim a range of zero rows.
 func TestThreadTitleWithoutRoomForRowsSaysSo(t *testing.T) {
 	m, _ := editorSetup(100, 16) // 8 lines in the box: the thread title is the last but one
@@ -407,6 +457,20 @@ func TestThreadTitleNeverShowsAnEmptyRange(t *testing.T) {
 				t.Errorf("the range %s-%s lists no rows", got[1], got[2])
 			}
 		})
+	}
+}
+
+func TestThreadListShrinksWhenTheyExit(t *testing.T) {
+	m, mon := editorSetup(100, 20)
+	mon.threads[200] = manyThreads(40)
+	openDetail(m)
+	press(m, "end")
+
+	mon.threads[200] = manyThreads(3)
+	refreshNow(m)
+
+	if !strings.Contains(screenText(m), "t-0") {
+		t.Errorf("the scroll position must clamp to the shorter list:\n%s", screenText(m))
 	}
 }
 

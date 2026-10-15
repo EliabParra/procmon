@@ -45,6 +45,7 @@ type detail struct {
 	startTime uint64
 	last      monitor.Process // the last row seen, to name the process once it is gone
 	data      detailData
+	offset    int // index of the first visible thread
 }
 
 // snapProc finds a process of the last snapshot.
@@ -97,6 +98,7 @@ func (m *Model) watchedPID() int {
 func (m *Model) applyDetail(d detailData) {
 	if m.view == viewDetail && d.pid != 0 && d.pid == m.detail.pid {
 		m.detail.data = d
+		m.clampThreads()
 	}
 }
 
@@ -127,12 +129,31 @@ func (m *Model) detailRows() int { return m.layout().tableRows + 1 }
 // threadRows is how many threads fit on screen.
 func (m *Model) threadRows() int { return max(0, m.detailRows()-detailFixed) }
 
-// detailKey handles the keys of the detail screen: esc or enter goes back.
+func (m *Model) clampThreads() {
+	m.detail.offset = min(max(m.detail.offset, 0), max(0, len(m.detail.data.threads)-m.threadRows()))
+}
+
+// detailKey handles the keys of the detail screen: esc or enter goes back,
+// the movement keys scroll the thread list.
 func (m *Model) detailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	page := max(1, m.threadRows())
 	switch msg.String() {
 	case "esc", "enter":
 		m.closeDetail()
+	case "up", "k":
+		m.detail.offset--
+	case "down", "j":
+		m.detail.offset++
+	case "pgup":
+		m.detail.offset -= page
+	case "pgdown":
+		m.detail.offset += page
+	case "home":
+		m.detail.offset = 0
+	case "end":
+		m.detail.offset = len(m.detail.data.threads)
 	}
+	m.clampThreads()
 	return m, nil
 }
 
@@ -250,8 +271,8 @@ func (m *Model) threadLines(w int) []string {
 	case rows == 0 && len(d.threads) > 0:
 		title += " " + m.styles.text.Render(fmt.Sprintf("(%d, enlarge the window)", len(d.threads)))
 	case len(d.threads) > rows:
-		first := 1
-		last := min(rows, len(d.threads))
+		first := m.detail.offset + 1
+		last := min(m.detail.offset+rows, len(d.threads))
 		title += " " + m.styles.text.Render(fmt.Sprintf("%d-%d of %d", first, last, len(d.threads)))
 	default:
 		title += " " + m.styles.text.Render(fmt.Sprintf("(%d)", len(d.threads)))
@@ -262,7 +283,7 @@ func (m *Model) threadLines(w int) []string {
 	lines := []string{title, m.styles.head.Render(strings.Join([]string{
 		cell("TID", tidW, true), cell("S", stateW, false), cell("TIME", timeW, true), cell("NAME", nameW, false),
 	}, " "))}
-	for i := 0; i < len(d.threads) && i < rows; i++ {
+	for i := m.detail.offset; i < len(d.threads) && i < m.detail.offset+rows; i++ {
 		t := d.threads[i]
 		lines = append(lines, m.paint(t.State, []string{
 			cell(strconv.Itoa(t.TID), tidW, true),
