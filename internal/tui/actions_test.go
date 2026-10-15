@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -32,6 +33,12 @@ func footerText(m *Model) string {
 func rawFooter(m *Model) string {
 	lines := strings.Split(m.View().Content, "\n")
 	return lines[len(lines)-1]
+}
+
+func TestOwnPIDDefaultsToTheRunningProcess(t *testing.T) {
+	if got := New(&fakeMonitor{}, &fakeControl{}).selfPID; got != os.Getpid() {
+		t.Errorf("selfPID = %d, want %d", got, os.Getpid())
+	}
 }
 
 func TestTerminateAsksBeforeSending(t *testing.T) {
@@ -345,6 +352,62 @@ func TestTheAnswerGoesToTheRowThatWasAsked(t *testing.T) {
 				t.Errorf("calls = %v, want only %q", ctl.calls, call)
 			}
 		})
+	}
+}
+
+func TestTheMonitorNeverActsOnItself(t *testing.T) {
+	for _, key := range []string{"x", "X", "s", "r"} {
+		t.Run(key, func(t *testing.T) {
+			m, _, ctl := actionSetup(WithSelfPID(200))
+			press(m, key)
+
+			if m.mode != modeNormal {
+				t.Error("no question or prompt may open for procmon itself")
+			}
+			press(m, "y") // in case a question did open
+			if len(ctl.calls) != 0 {
+				t.Fatalf("calls = %v: procmon must not touch itself", ctl.calls)
+			}
+		})
+	}
+}
+
+func TestSelfRefusalMessage(t *testing.T) {
+	tests := map[string]string{
+		"x": "refusing to terminate procmon itself (PID 200)",
+		"X": "refusing to force kill procmon itself (PID 200)",
+		"s": "refusing to suspend procmon itself (PID 200)",
+		"r": "refusing to resume procmon itself (PID 200)",
+	}
+	for key, want := range tests {
+		m, _, _ := actionSetup(WithSelfPID(200))
+		press(m, key)
+		if got := footerText(m); !strings.Contains(got, want) {
+			t.Errorf("%s: message = %q, want %q", key, got, want)
+		}
+		if !m.notice.isErr {
+			t.Errorf("%s: the refusal is an error message", key)
+		}
+	}
+}
+
+// perform is the one place that reaches the kernel, so it checks for itself
+// again, whatever the caller did before.
+func TestTheGuardAlsoStandsAtTheSignalItself(t *testing.T) {
+	m, mon, ctl := actionSetup(WithSelfPID(200))
+	for key, a := range actions {
+		m.perform(a, target{pid: 200, startTime: 777, name: "firefox"})
+		if len(ctl.calls) != 0 || len(mon.verified) != 0 {
+			t.Fatalf("%s: procmon reached the kernel for itself: %v", key, ctl.calls)
+		}
+	}
+}
+
+func TestOtherProcessesStillWorkWhenOneIsOurOwn(t *testing.T) {
+	m, _, ctl := actionSetup(WithSelfPID(100))
+	press(m, "s", "y")
+	if !slices.Equal(ctl.calls, []string{"suspend 200"}) {
+		t.Errorf("calls = %v", ctl.calls)
 	}
 }
 

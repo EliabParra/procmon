@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -77,6 +78,7 @@ type Model struct {
 	notice  notice    // a one-off message, gone on the next key
 	tree    bool      // the table shows parents and children instead of a flat list
 	pending pending   // the action waiting for its answer in modeConfirm
+	selfPID int       // the monitor's own PID, which no action may touch
 
 	rows    []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
 	prefix  []string          // tree connectors of each row; nil in the flat table
@@ -105,6 +107,7 @@ func New(mon Monitor, ctl Control, opts ...Option) *Model {
 		styles:   newStyles(false),
 		interval: DefaultInterval,
 		sortKey:  monitor.ByCPU,
+		selfPID:  os.Getpid(),
 	}
 	for _, opt := range opts {
 		opt(m)

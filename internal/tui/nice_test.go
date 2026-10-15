@@ -242,6 +242,27 @@ func TestTheNicePromptIsAboutTheProcessThatWasAsked(t *testing.T) {
 	}
 }
 
+func TestTheMonitorNeverChangesItsOwnPriority(t *testing.T) {
+	m, _, ctl := actionSetup(WithSelfPID(200))
+	press(m, "n")
+	if m.mode != modeNormal || len(ctl.calls) != 0 {
+		t.Errorf("mode = %v, calls = %v: nothing may happen for procmon itself", m.mode, ctl.calls)
+	}
+	if got := footerText(m); !strings.Contains(got, "refusing to change the priority of procmon itself (PID 200)") {
+		t.Errorf("message = %q", got)
+	}
+}
+
+// Like perform for the signals, the commit is the one place that reaches the
+// kernel, so it checks for itself again.
+func TestTheGuardAlsoStandsAtTheNiceCommit(t *testing.T) {
+	m, mon, ctl := actionSetup(WithSelfPID(200))
+	m.commitNice(pending{who: target{pid: 200, startTime: 777, name: "firefox"}, nice: 0}, "5")
+	if len(ctl.calls) != 0 || len(mon.verified) != 0 {
+		t.Errorf("procmon reached the kernel for itself: %v", ctl.calls)
+	}
+}
+
 func TestNiceWithNothingSelected(t *testing.T) {
 	m := loaded(100, 30)
 	press(m, "n")

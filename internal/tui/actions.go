@@ -12,6 +12,12 @@ import (
 	"github.com/EliabParra/procmon/internal/oserr"
 )
 
+// WithSelfPID tells the screen which PID is the monitor itself, so it can
+// refuse to act on it (default: the PID of the running process).
+func WithSelfPID(pid int) Option {
+	return func(m *Model) { m.selfPID = pid }
+}
+
 // action is one of the signals the screen can send.
 type action struct {
 	signal string // the signal's name, as the status line shows it
@@ -73,11 +79,22 @@ func (m *Model) actionTarget() (target, bool) {
 	return newTarget(p), true
 }
 
+// refuseSelf reports whether t is the monitor itself, and says why nothing
+// will happen: ending, freezing or reprioritising the monitor from its own
+// screen is never what the user wants.
+func (m *Model) refuseSelf(t target, verb string) bool {
+	if t.pid != m.selfPID {
+		return false
+	}
+	m.notice = notice{text: fmt.Sprintf("refusing to %s procmon itself (PID %d)", verb, t.pid), isErr: true}
+	return true
+}
+
 // startAction handles x, X, s and r: it captures the target and asks y/n.
 func (m *Model) startAction(key string) {
 	a := actions[key]
 	t, ok := m.actionTarget()
-	if !ok {
+	if !ok || m.refuseSelf(t, a.verb) {
 		return
 	}
 	m.mode, m.pending = modeConfirm, pending{act: a, who: t}
@@ -87,6 +104,9 @@ func (m *Model) startAction(key string) {
 // are reused, so first it reads the process again and checks that the PID
 // still belongs to the process the user saw.
 func (m *Model) perform(a action, t target) {
+	if m.refuseSelf(t, a.verb) {
+		return
+	}
 	can, failed := "send "+a.signal, fmt.Sprintf("%s to %s failed", a.signal, t)
 	if err := m.mon.Verify(t.pid, t.startTime); err != nil {
 		m.notice = failure(err, t, can, "cannot verify "+t.String())
@@ -115,7 +135,7 @@ func failure(err error, t target, can, failed string) notice {
 // startNice opens the prompt for a new nice value, showing the current one.
 func (m *Model) startNice() {
 	t, ok := m.actionTarget()
-	if !ok {
+	if !ok || m.refuseSelf(t, "change the priority of") {
 		return
 	}
 	cur, err := m.ctl.Priority(t.pid)
@@ -154,6 +174,9 @@ func (m *Model) commitNice(p pending, text string) {
 		return
 	}
 	t := p.who
+	if m.refuseSelf(t, "change the priority of") {
+		return
+	}
 	if err := m.mon.Verify(t.pid, t.startTime); err != nil {
 		m.notice = failure(err, t, "change the nice of "+t.String(), "cannot verify "+t.String())
 		return
