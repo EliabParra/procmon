@@ -1,6 +1,10 @@
 package tui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/EliabParra/procmon/internal/monitor"
+)
 
 // handleKey routes a key press by mode. Ctrl+C quits from any mode, so there
 // is always a way out through tea.Quit, which restores the terminal.
@@ -39,6 +43,17 @@ func (m *Model) tableKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.picked = false // the top row again, whatever the order becomes
 	case "end":
 		m.pick(len(m.rows) - 1)
+	case "c":
+		m.setSort(monitor.ByCPU)
+	case "m":
+		m.setSort(monitor.ByMem)
+	case "p":
+		m.setSort(monitor.ByPID)
 	}
 	return m, nil
+}
+
+func (m *Model) setSort(k monitor.SortKey) {
+	m.sortKey = k
+	m.rebuild()
 }

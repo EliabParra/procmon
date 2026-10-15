@@ -118,6 +118,7 @@ func TestHeaderShowsTheSummary(t *testing.T) {
 		"Swap",
 		"0K / 8.0G",
 		"refresh 1s",
+		"sort CPU",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("header is missing %q:\n%s", want, out)

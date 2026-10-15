@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/EliabParra/procmon/internal/monitor"
 )
 
 const (
@@ -12,17 +14,29 @@ const (
 )
 
 // headerBox is the rounded box with the system summary. The refresh interval
-// sits in its top border as a pill, the time of the last refresh at the
-// right end.
+// and the sort key sit in its top border as pills, the time of the last
+// refresh at the right end.
 func (m *Model) headerBox(w int) []string {
 	left := m.styles.title.Render("procmon") + " " +
-		m.styles.pill("refresh", formatInterval(m.interval))
+		m.styles.pill("refresh", formatInterval(m.interval)) + " " +
+		m.styles.pill("sort", sortName(m.sortKey))
 
 	right := ""
 	if m.haveSnap {
 		right = m.styles.dim.Render(m.snap.TakenAt.Format("3:04:05 PM")) // 12-hour clock
 	}
 	return m.frame(w, left, right, m.summaryLines(w-4))
+}
+
+func sortName(k monitor.SortKey) string {
+	switch k {
+	case monitor.ByMem:
+		return "MEM"
+	case monitor.ByPID:
+		return "PID"
+	default:
+		return "CPU"
+	}
 }
 
 // summaryLines are the three lines of the header: task counts, load and

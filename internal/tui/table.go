@@ -116,6 +116,18 @@ func (m *Model) cellText(p monitor.Process, id colID) string {
 	}
 }
 
+// sortColumn is the column the table is sorted by, and the arrow to show on it.
+func (m *Model) sortColumn() (colID, string) {
+	switch m.sortKey {
+	case monitor.ByMem:
+		return colMem, "▼"
+	case monitor.ByPID:
+		return colPID, "▲"
+	default:
+		return colCPU, "▼"
+	}
+}
+
 // tableLines returns the column titles and exactly n body lines, all w
 // columns wide: the visible window of the rows, then blank lines.
 func (m *Model) tableLines(w, n int) (head string, body []string) {
@@ -127,10 +139,15 @@ func (m *Model) tableLines(w, n int) (head string, body []string) {
 		return c.width
 	}
 
+	sorted, arrow := m.sortColumn()
 	titles := make([]string, len(cols))
 	for i, c := range cols {
 		title := c.title
 		style := m.styles.head
+		if c.id == sorted {
+			title += arrow
+			style = m.styles.accent.Bold(true)
+		}
 		titles[i] = style.Render(cell(title, width(c), c.right))
 	}
 	head = strings.Join(titles, " ")

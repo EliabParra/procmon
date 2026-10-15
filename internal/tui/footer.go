@@ -14,6 +14,9 @@ type hint struct{ key, desc string }
 var normalHints = []hint{
 	{"q", "quit"},
 	{"↑/↓", "move"},
+	{"c", "cpu"},
+	{"m", "mem"},
+	{"p", "pid"},
 	{"pgup/pgdn", "page"},
 	{"home/end", "jump"},
 }
