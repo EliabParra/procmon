@@ -244,6 +244,110 @@ func TestFailuresAreExplainedNotFatal(t *testing.T) {
 	}
 }
 
+func TestAStaleRowNeverReachesTheKernel(t *testing.T) {
+	tests := []struct {
+		name  string
+		after func(mon *fakeMonitor)
+	}{
+		{"the process exited", func(mon *fakeMonitor) {
+			mon.snap = snapshotOf(proc(100, "shell", 1), proc(300, "other", 2))
+		}},
+		{"its PID went to another process", func(mon *fakeMonitor) {
+			stranger := proc(200, "stranger", 0)
+			stranger.StartTime = 999
+			mon.snap = snapshotOf(proc(100, "shell", 1), stranger, proc(300, "other", 2))
+		}},
+	}
+	for _, tt := range tests {
+		for _, keys := range [][]string{{"s", "y"}, {"r", "y"}, {"x", "y"}, {"X", "y"}} {
+			t.Run(fmt.Sprintf("%s/%s", tt.name, strings.Join(keys, "")), func(t *testing.T) {
+				m, mon, ctl := actionSetup()
+				// The screen still shows the old row: no refresh has come yet.
+				tt.after(mon)
+
+				press(m, keys...)
+
+				if len(ctl.calls) != 0 {
+					t.Fatalf("a signal was sent to a process that is not the one listed: %v", ctl.calls)
+				}
+				if got := footerText(m); !strings.Contains(got, "process 200 no longer exists") {
+					t.Errorf("the message must say the process is gone: %q", got)
+				}
+				if !slices.Contains(mon.verified, "200@777") {
+					t.Errorf("the PID and start time of the row must be verified, got %v", mon.verified)
+				}
+			})
+		}
+	}
+}
+
+func TestVerifyIsCalledRightBeforeEverySignal(t *testing.T) {
+	m, mon, ctl := actionSetup()
+	press(m, "s", "y", "r", "y", "x", "y", "X", "y")
+	if len(ctl.calls) != 4 || len(mon.verified) != 4 {
+		t.Errorf("verified %v before sending %v", mon.verified, ctl.calls)
+	}
+}
+
+func TestUnverifiableProcessIsNotSignalled(t *testing.T) {
+	m, mon, ctl := actionSetup()
+	mon.verifyErr = fmt.Errorf("monitor: verify 200: %w", oserr.ErrPermission)
+	press(m, "s", "y")
+	if len(ctl.calls) != 0 {
+		t.Errorf("calls = %v, want none: the process could not be verified", ctl.calls)
+	}
+	if got := footerText(m); !strings.Contains(got, "permission denied") {
+		t.Errorf("message = %q", got)
+	}
+
+	mon.verifyErr = errors.New("boom")
+	press(m, "s", "y")
+	if len(ctl.calls) != 0 || !strings.Contains(footerText(m), "boom") {
+		t.Errorf("calls = %v, message = %q", ctl.calls, footerText(m))
+	}
+}
+
+func TestTheQuestionIsAboutTheProcessThatWasAsked(t *testing.T) {
+	for _, ask := range []string{"x", "X", "s", "r"} {
+		t.Run(ask, func(t *testing.T) {
+			m, mon, ctl := actionSetup()
+			press(m, ask) // about 200
+
+			// A refresh arrives while the question is open: 200 is gone and the
+			// selection moves to its neighbour.
+			mon.snap = snapshotOf(proc(100, "shell", 1), proc(300, "other", 2))
+			m.Update(refreshedMsg{snap: mon.snap})
+			if m.selected() == 200 {
+				t.Fatal("test setup: the selection should have moved")
+			}
+			press(m, "y")
+
+			if len(ctl.calls) != 0 {
+				t.Errorf("calls = %v: the answer must not go to the neighbour", ctl.calls)
+			}
+			if got := footerText(m); !strings.Contains(got, "process 200 no longer exists") {
+				t.Errorf("message = %q", got)
+			}
+		})
+	}
+}
+
+// The question belongs to the row that was selected when the key was pressed,
+// whatever else is pressed while it is open.
+func TestTheAnswerGoesToTheRowThatWasAsked(t *testing.T) {
+	for ask, call := range map[string]string{"s": "suspend 200", "r": "resume 200"} {
+		t.Run(ask, func(t *testing.T) {
+			m, _, ctl := actionSetup()
+			press(m, ask)
+			press(m, "down", "down") // ignored while the question is open
+			press(m, "y")
+			if !slices.Equal(ctl.calls, []string{call}) {
+				t.Errorf("calls = %v, want only %q", ctl.calls, call)
+			}
+		})
+	}
+}
+
 func TestActionsWithNothingSelected(t *testing.T) {
 	m := loaded(100, 30)
 	for _, key := range []string{"x", "X", "s", "r"} {

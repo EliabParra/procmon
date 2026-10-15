@@ -35,7 +35,7 @@ func TestNicePromptShowsTheCurrentValueAndTheRange(t *testing.T) {
 }
 
 func TestTypingANiceValueSetsIt(t *testing.T) {
-	m, _, ctl := actionSetup()
+	m, mon, ctl := actionSetup()
 	ctl.nice = 3
 	press(m, "n")
 	typeText(m, "5")
@@ -50,6 +50,9 @@ func TestTypingANiceValueSetsIt(t *testing.T) {
 	}
 	if m.mode != modeNormal || m.notice.isErr {
 		t.Errorf("mode = %v, notice = %+v", m.mode, m.notice)
+	}
+	if !slices.Contains(mon.verified, "200@777") {
+		t.Errorf("the process must be verified before the change, got %v", mon.verified)
 	}
 }
 
@@ -200,6 +203,42 @@ func TestNiceFailuresAreExplained(t *testing.T) {
 				t.Errorf("failures are drawn as errors: %+v", m.notice)
 			}
 		})
+	}
+}
+
+func TestAStaleRowNeverGetsANewNice(t *testing.T) {
+	m, mon, ctl := actionSetup()
+	press(m, "n")
+	typeText(m, "5")
+	// While the prompt was open the process died and its PID was reused.
+	stranger := proc(200, "stranger", 0)
+	stranger.StartTime = 999
+	mon.snap = snapshotOf(proc(100, "shell", 1), stranger)
+	press(m, "enter")
+
+	for _, c := range ctl.calls {
+		if strings.HasPrefix(c, "setpriority") {
+			t.Fatalf("a stranger got a new nice: %v", ctl.calls)
+		}
+	}
+	if got := footerText(m); !strings.Contains(got, "process 200 no longer exists") {
+		t.Errorf("message = %q", got)
+	}
+}
+
+func TestTheNicePromptIsAboutTheProcessThatWasAsked(t *testing.T) {
+	m, mon, ctl := actionSetup()
+	press(m, "n")
+	typeText(m, "5")
+
+	mon.snap = snapshotOf(proc(100, "shell", 1), proc(300, "other", 2))
+	m.Update(refreshedMsg{snap: mon.snap}) // 200 is gone, the selection moves on
+	press(m, "enter")
+
+	for _, c := range ctl.calls {
+		if strings.HasPrefix(c, "setpriority") {
+			t.Errorf("the value must not go to the neighbour: %v", ctl.calls)
+		}
 	}
 }
 

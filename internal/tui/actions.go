@@ -83,9 +83,15 @@ func (m *Model) startAction(key string) {
 	m.mode, m.pending = modeConfirm, pending{act: a, who: t}
 }
 
-// perform sends the signal.
+// perform sends the signal. The snapshot on screen may be a second old and PIDs
+// are reused, so first it reads the process again and checks that the PID
+// still belongs to the process the user saw.
 func (m *Model) perform(a action, t target) {
 	can, failed := "send "+a.signal, fmt.Sprintf("%s to %s failed", a.signal, t)
+	if err := m.mon.Verify(t.pid, t.startTime); err != nil {
+		m.notice = failure(err, t, can, "cannot verify "+t.String())
+		return
+	}
 	if err := a.send(m.ctl, t.pid); err != nil {
 		m.notice = failure(err, t, can, failed)
 		return
@@ -148,6 +154,10 @@ func (m *Model) commitNice(p pending, text string) {
 		return
 	}
 	t := p.who
+	if err := m.mon.Verify(t.pid, t.startTime); err != nil {
+		m.notice = failure(err, t, "change the nice of "+t.String(), "cannot verify "+t.String())
+		return
+	}
 	if err := m.ctl.SetPriority(t.pid, n); err != nil {
 		if errors.Is(err, oserr.ErrPermission) {
 			m.notice = notice{text: "permission denied: lowering nice needs root (CAP_SYS_NICE); only the owner can raise it", isErr: true}
