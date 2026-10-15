@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -17,6 +18,7 @@ var normalHints = []hint{
 	{"c", "cpu"},
 	{"m", "mem"},
 	{"p", "pid"},
+	{"/", "filter"},
 	{"pgup/pgdn", "page"},
 	{"home/end", "jump"},
 }
@@ -30,7 +32,12 @@ func (m *Model) hints() []hint {
 // question while one is open, otherwise a message (if any) followed by the keys
 // that fit.
 func (m *Model) footer(w int) string {
-	return m.helpLine(w)
+	switch {
+	case m.typing():
+		return m.promptLine(w)
+	default:
+		return m.helpLine(w)
+	}
 }
 
 // helpLine shows the hot keys, dropping the last ones when the line is short.
@@ -73,4 +80,49 @@ func (m *Model) statusText() string {
 		return "refresh failed: " + clean(m.refreshErr.Error())
 	}
 	return ""
+}
+
+// promptLabel is what the input line asks for on a line w columns wide. The
+// nice question is long, so on a narrow line it shrinks to "nice 4321 (name)
+// [0]:" (the number in brackets is the current nice) and, if that is still too
+// long, loses the end of the name: the typed value must always have room.
+func (m *Model) promptLabel(w int) string {
+	return "/"
+}
+
+// promptParts are the label and the part of the typed text that is visible
+// on a line w columns wide: its end, if it does not fit.
+func (m *Model) promptParts(w int) (label, text string) {
+	label, text = m.promptLabel(w), m.input.String()
+	room := max(0, w-ansi.StringWidth(label)-2) // the space after the label and the cursor
+	if ansi.StringWidth(text) > room {
+		text = ansi.TruncateLeft(text, ansi.StringWidth(text)-room+1, "…")
+	}
+	return label, text
+}
+
+// promptLine is the input line: the label, the text typed so far and, when
+// there is room, how to finish.
+func (m *Model) promptLine(w int) string {
+	label, text := m.promptParts(w)
+	line := m.styles.accent.Render(label) + " " + m.styles.text.Render(text)
+
+	const hints = "enter apply  esc cancel"
+	if used := ansi.StringWidth(label) + 1 + ansi.StringWidth(text) + 1; used+len(gap)+len(hints) <= w {
+		line += strings.Repeat(" ", w-used-len(hints)+1) + m.styles.dim.Render(hints)
+	}
+	return line
+}
+
+// inputCursor places the terminal cursor at the end of the typed text while an
+// input is open, and hides it otherwise.
+func (m *Model) inputCursor() *tea.Cursor {
+	if !m.typing() {
+		return nil
+	}
+	label, text := m.promptParts(m.width)
+	x := ansi.StringWidth(label) + 1 + ansi.StringWidth(text)
+	c := tea.NewCursor(min(x, m.width-1), m.height-1)
+	c.Shape = tea.CursorBar
+	return c
 }

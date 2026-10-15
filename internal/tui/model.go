@@ -16,6 +16,15 @@ const DefaultInterval = time.Second
 // samples, so waiting a whole interval would leave the column at zero.
 const warmup = 500 * time.Millisecond
 
+// mode says where key presses go. Hot keys work in modeNormal; the typing
+// modes capture text until Enter or Esc; modeConfirm waits for y or n.
+type mode int
+
+const (
+	modeNormal mode = iota
+	modeFilter      // typing the name filter
+)
+
 // Messages the model sends itself.
 type (
 	// tickMsg fires when the refresh interval has passed. gen tells which tick
@@ -36,6 +45,7 @@ type Model struct {
 	styles styles
 
 	width, height int
+	mode          mode
 
 	interval   time.Duration
 	gen        int  // current tick chain
@@ -46,12 +56,15 @@ type Model struct {
 	refreshErr error // the last Refresh failed; the old snapshot stays on screen
 
 	sortKey monitor.SortKey
+	filter  string    // only processes whose name contains it are listed
+	input   lineInput // what is being typed in modeFilter and modeInterval
 
-	rows   []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
-	cursor int               // index in rows of the selected row
-	offset int               // index in rows of the first visible row
-	selPID int               // the selected process; the cursor follows it once picked
-	picked bool              // the user chose a row; until then the top row stays selected
+	rows    []monitor.Process // the table: filtered, sorted and, in the tree, in tree order
+	matches int               // processes that match the filter (rows also holds ancestors)
+	cursor  int               // index in rows of the selected row
+	offset  int               // index in rows of the first visible row
+	selPID  int               // the selected process; the cursor follows it once picked
+	picked  bool              // the user chose a row; until then the top row stays selected
 }
 
 // Option customizes a Model.
@@ -120,7 +133,7 @@ func tickAfter(d time.Duration, gen int) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return tickMsg{gen: gen} })
 }
 
-// rebuild recomputes the table from the last snapshot: it sorts the rows.
+// rebuild recomputes the table from the last snapshot: filter, then sort.
 //
 // Once the user has picked a row the selection stays on the same process even
 // if the order changed; when that process is gone the cursor stays at the same
@@ -128,7 +141,8 @@ func tickAfter(d time.Duration, gen int) tea.Cmd {
 // selected, so the first screen does not highlight a process that sorted
 // itself away.
 func (m *Model) rebuild() {
-	matched := slices.Clone(m.snap.Processes)
+	matched := monitor.Filter(m.snap.Processes, m.filter)
+	m.matches = len(matched)
 
 	rows := matched
 	monitor.Sort(rows, m.sortKey)
@@ -141,6 +155,11 @@ func (m *Model) rebuild() {
 		m.cursor = i
 	}
 	m.moveTo(m.cursor)
+}
+
+// typing is true while a line of text is being typed in the bottom line.
+func (m *Model) typing() bool {
+	return m.mode == modeFilter
 }
 
 // pick moves the cursor on the user's request: from now on it follows the

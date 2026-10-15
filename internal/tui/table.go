@@ -185,6 +185,9 @@ func (m *Model) styleRow(p monitor.Process, cells []string, cols []column, selec
 }
 
 func (m *Model) emptyMessage() string {
+	if m.filter != "" {
+		return fmt.Sprintf("no processes match %q", clean(m.filter))
+	}
 	return "no processes to show"
 }
 

@@ -39,6 +39,9 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "procmon"
+	if m.width > 0 && m.height > 0 {
+		v.Cursor = m.inputCursor()
+	}
 	return v
 }
 

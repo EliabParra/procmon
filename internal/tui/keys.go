@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/EliabParra/procmon/internal/monitor"
@@ -12,7 +14,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	return m.normalKey(msg)
+	switch m.mode {
+	case modeFilter:
+		return m.inputKey(msg)
+	default:
+		return m.normalKey(msg)
+	}
 }
 
 // normalKey handles the hot keys: one press, no Enter. The ones that mean the
@@ -49,6 +56,8 @@ func (m *Model) tableKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.setSort(monitor.ByMem)
 	case "p":
 		m.setSort(monitor.ByPID)
+	case "/":
+		m.startInput(modeFilter, m.filter)
 	}
 	return m, nil
 }
@@ -56,4 +65,43 @@ func (m *Model) tableKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) setSort(k monitor.SortKey) {
 	m.sortKey = k
 	m.rebuild()
+}
+
+func (m *Model) startInput(to mode, text string) {
+	m.mode = to
+	m.input.Set(text)
+}
+
+// inputKey edits the line in modeFilter and modeInterval.
+func (m *Model) inputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		return m.commitInput()
+	case "esc":
+		m.endInput()
+	default:
+		if msg.Text != "" {
+			m.input.Insert(msg.Text)
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) endInput() {
+	m.mode = modeNormal
+	m.input.Reset()
+}
+
+// commitInput applies what was typed. An empty filter clears it; an invalid
+// interval or nice is reported in the status line and changes nothing.
+func (m *Model) commitInput() (tea.Model, tea.Cmd) {
+	from, text := m.mode, m.input.String()
+	m.endInput()
+
+	switch from {
+	case modeFilter:
+		m.filter = strings.TrimSpace(text)
+		m.rebuild()
+	}
+	return m, nil
 }

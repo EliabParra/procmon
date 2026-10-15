@@ -179,6 +179,13 @@ func press(m *Model, names ...string) tea.Cmd {
 	return cmd
 }
 
+// typeText sends every rune of s as a key press.
+func typeText(m *Model, s string) {
+	for _, r := range s {
+		m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+}
+
 // run executes cmd and every command batched inside it, returning the messages.
 // Only use it with short intervals: a tick command really waits.
 func run(cmd tea.Cmd) []tea.Msg {
